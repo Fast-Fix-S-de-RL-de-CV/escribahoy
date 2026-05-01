@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   LightbulbIcon,
@@ -16,11 +16,15 @@ import type { Suggestion } from "@/lib/schema";
 
 export function SuggestionsBox({
   projectId,
+  nodeId,
+  autoSuggest,
   suggestions,
   onApplied,
   onDismissed,
 }: {
   projectId: string;
+  nodeId?: string;
+  autoSuggest?: boolean;
   suggestions: Suggestion[];
   onApplied: (
     suggestionId: string,
@@ -34,11 +38,62 @@ export function SuggestionsBox({
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [lastSummary, setLastSummary] = useState<string | null>(null);
+  const [autoGenerating, setAutoGenerating] = useState(false);
+  const autoGenAttemptedFor = useRef<Set<string>>(new Set());
 
   const pending = suggestions.filter((s) => s.status === "pending");
   const applied = suggestions.filter((s) => s.status === "applied");
+  const dismissed = suggestions.filter((s) => s.status === "dismissed");
 
-  if (pending.length === 0 && applied.length === 0) return null;
+  // Auto-genera una sugerencia al entrar a una sección vacía sin sugerencias.
+  useEffect(() => {
+    if (!autoSuggest || !nodeId) return;
+    if (autoGenAttemptedFor.current.has(nodeId)) return;
+    if (
+      pending.length > 0 ||
+      applied.length > 0 ||
+      dismissed.length > 0 ||
+      autoGenerating
+    )
+      return;
+    autoGenAttemptedFor.current.add(nodeId);
+    setAutoGenerating(true);
+    fetch("/api/ai/auto-suggest-section", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nodeId }),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const j = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw new Error(j.error ?? "no se pudo generar");
+        }
+        router.refresh();
+      })
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : "error");
+      })
+      .finally(() => {
+        setAutoGenerating(false);
+      });
+  }, [
+    autoSuggest,
+    nodeId,
+    pending.length,
+    applied.length,
+    dismissed.length,
+    autoGenerating,
+    router,
+  ]);
+
+  if (
+    pending.length === 0 &&
+    applied.length === 0 &&
+    !autoGenerating
+  )
+    return null;
 
   async function executeSuggestion(s: Suggestion) {
     setRunning(s.id);
@@ -97,6 +152,12 @@ export function SuggestionsBox({
               {pending.length}
             </span>
           )}
+          {autoGenerating && pending.length === 0 && (
+            <span className="text-xs text-[var(--color-fg-muted)] flex items-center gap-1">
+              <CircularSpinner size={10} className="text-[var(--color-accent)]" />
+              preparando...
+            </span>
+          )}
           {applied.length > 0 && (
             <span className="text-xs text-[var(--color-fg-subtle)]">
               · {applied.length} aplicada{applied.length === 1 ? "" : "s"}
@@ -113,6 +174,17 @@ export function SuggestionsBox({
       </div>
       {!collapsed && (
         <div className="px-4 pb-4 space-y-2">
+          {autoGenerating && pending.length === 0 && (
+            <div className="bg-[var(--color-bg-elevated)] rounded-md border border-[var(--color-border)] p-3 flex items-center gap-2 text-sm text-[var(--color-fg-muted)]">
+              <CircularSpinner
+                size={14}
+                className="text-[var(--color-accent)]"
+              />
+              <span>
+                Escribahoy está preparando una sugerencia para esta sección...
+              </span>
+            </div>
+          )}
           {pending.map((s) => (
             <div
               key={s.id}
