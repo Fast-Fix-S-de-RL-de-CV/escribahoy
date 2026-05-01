@@ -118,6 +118,24 @@ export const aiMessages = sqliteTable("ai_messages", {
     .$defaultFn(() => new Date()),
 });
 
+export const suggestions = sqliteTable("suggestions", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  nodeId: text("node_id").notNull(),
+  content: text("content").notNull(),
+  status: text("status", {
+    enum: ["pending", "applied", "dismissed"],
+  })
+    .default("pending")
+    .notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  appliedAt: integer("applied_at", { mode: "timestamp" }),
+});
+
 export const changeLog = sqliteTable("change_log", {
   id: text("id").primaryKey(),
   projectId: text("project_id")
@@ -166,3 +184,4 @@ export type OutlineNode = typeof outlineNodes.$inferSelect;
 export type KnowledgeFile = typeof knowledgeFiles.$inferSelect;
 export type AIMessage = typeof aiMessages.$inferSelect;
 export type ChangeLog = typeof changeLog.$inferSelect;
+export type Suggestion = typeof suggestions.$inferSelect;

@@ -12,6 +12,8 @@ export type ChangeKind =
   | "replace_content"
   | "edit_content"
   | "insert_decoration"
+  | "leave_suggestion"
+  | "apply_suggestion"
   | "generate_outline"
   | "regenerate_outline"
   | "update_settings"

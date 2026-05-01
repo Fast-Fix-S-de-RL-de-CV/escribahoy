@@ -38,9 +38,17 @@ import {
   generateScriptForLesson,
   updateNode,
 } from "@/lib/actions/project";
-import type { OutlineNode, Project, AIMessage, User } from "@/lib/schema";
+import type {
+  OutlineNode,
+  Project,
+  AIMessage,
+  User,
+  Suggestion,
+} from "@/lib/schema";
 import { cn, formatRelative, plural, wordCount } from "@/lib/utils";
 import { RichEditor } from "@/components/rich-editor";
+import { computeNumbering } from "@/lib/numbering";
+import { SuggestionsBox } from "@/components/suggestions-box";
 import { getMissingCoreSettings } from "@/lib/project-validation";
 import {
   getFormat,
@@ -58,6 +66,7 @@ export function ProjectWorkspace({
   nodes: initialNodes,
   kb: initialKb,
   messages: initialMessages,
+  suggestions: initialSuggestions,
   initialNodeId,
 }: {
   user: User;
@@ -65,14 +74,30 @@ export function ProjectWorkspace({
   nodes: OutlineNode[];
   kb: KbItem[];
   messages: AIMessage[];
+  suggestions: Suggestion[];
   initialNodeId: string | null;
 }) {
   const router = useRouter();
   const [nodes, setNodes] = useState(initialNodes);
   const [kb, setKb] = useState(initialKb);
   const [messages, setMessages] = useState(initialMessages);
+  const [suggestions, setSuggestions] = useState(initialSuggestions);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(initialNodeId);
   const [showKb, setShowKb] = useState(false);
+
+  // Numeración jerárquica calculada — se reajusta cuando cambia el outline.
+  const numbering = useMemo(() => computeNumbering(nodes), [nodes]);
+  // Sync from server (router.refresh) for suggestions too.
+  useEffect(() => setSuggestions(initialSuggestions), [initialSuggestions]);
+  // Conteo de sugerencias pendientes por nodo, para mostrar indicador en sidebar.
+  const pendingSuggestionsByNode = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const s of suggestions) {
+      if (s.status !== "pending") continue;
+      map[s.nodeId] = (map[s.nodeId] ?? 0) + 1;
+    }
+    return map;
+  }, [suggestions]);
   const [showSettings, setShowSettings] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   // Sync server-side updates back into local state when they come via router.refresh().
@@ -171,6 +196,8 @@ export function ProjectWorkspace({
         <OutlinePanel
           project={project}
           nodes={nodes}
+          numbering={numbering}
+          pendingSuggestionsByNode={pendingSuggestionsByNode}
           activeNodeId={activeNodeId}
           onSelect={setActiveNodeId}
           onAddNode={async (parentId, kind) => {
@@ -228,7 +255,10 @@ export function ProjectWorkspace({
         <SectionEditor
           project={project}
           node={activeNode}
+          numbering={numbering}
+          suggestions={suggestions}
           onUpdate={(patch) => activeNode && applyNodeUpdate(activeNode.id, patch)}
+          onSuggestionsChange={setSuggestions}
         />
         <AIPanel
           project={project}
@@ -394,6 +424,8 @@ function KpiInline({
 function OutlinePanel({
   project,
   nodes,
+  numbering,
+  pendingSuggestionsByNode,
   activeNodeId,
   onSelect,
   onAddNode,
@@ -402,6 +434,8 @@ function OutlinePanel({
 }: {
   project: Project;
   nodes: OutlineNode[];
+  numbering: Record<string, string | null>;
+  pendingSuggestionsByNode: Record<string, number>;
   activeNodeId: string | null;
   onSelect: (id: string) => void;
   onAddNode: (
@@ -441,6 +475,8 @@ function OutlinePanel({
                 key={n.id}
                 node={n}
                 index={i + 1}
+                number={null}
+                hasPendingSuggestion={pendingSuggestionsByNode[n.id]}
                 isLeaf
                 active={activeNodeId === n.id}
                 onClick={() => onSelect(n.id)}
@@ -472,10 +508,13 @@ function OutlinePanel({
               <OutlineRow
                 node={parent}
                 index={i + 1}
+                number={numbering[parent.id]}
+                hasPendingSuggestion={pendingSuggestionsByNode[parent.id]}
                 active={activeNodeId === parent.id}
-                onClick={() =>
-                  setCollapsed((c) => ({ ...c, [parent.id]: !c[parent.id] }))
-                }
+                onClick={() => {
+                  onSelect(parent.id);
+                  setCollapsed((c) => ({ ...c, [parent.id]: false }));
+                }}
                 onDelete={() => onDelete(parent.id)}
                 onRename={(t) => onRename(parent.id, t)}
                 expandable
@@ -488,6 +527,8 @@ function OutlinePanel({
                       key={kid.id}
                       node={kid}
                       index={ki + 1}
+                      number={numbering[kid.id]}
+                      hasPendingSuggestion={pendingSuggestionsByNode[kid.id]}
                       isLeaf
                       active={activeNodeId === kid.id}
                       onClick={() => onSelect(kid.id)}
@@ -521,6 +562,8 @@ function OutlinePanel({
                 key={n.id}
                 node={n}
                 index={i + 1}
+                number={null}
+                hasPendingSuggestion={pendingSuggestionsByNode[n.id]}
                 isLeaf
                 active={activeNodeId === n.id}
                 onClick={() => onSelect(n.id)}
@@ -563,6 +606,8 @@ function SidebarHeader({
 function OutlineRow({
   node,
   index,
+  number,
+  hasPendingSuggestion,
   active,
   isLeaf,
   expandable,
@@ -573,6 +618,8 @@ function OutlineRow({
 }: {
   node: OutlineNode;
   index: number;
+  number?: string | null;
+  hasPendingSuggestion?: number;
   active?: boolean;
   isLeaf?: boolean;
   expandable?: boolean;
@@ -634,8 +681,8 @@ function OutlineRow({
         />
       ) : (
         <div className="flex-1 min-w-0 flex items-baseline gap-1.5">
-          <span className="text-[var(--color-fg-subtle)] text-xs flex-shrink-0">
-            {index}.
+          <span className="text-[var(--color-fg-subtle)] text-xs flex-shrink-0 font-mono">
+            {number ?? `${index}.`}
           </span>
           <span
             className={cn(
@@ -645,6 +692,14 @@ function OutlineRow({
           >
             {node.title}
           </span>
+          {hasPendingSuggestion ? (
+            <span
+              className="flex-shrink-0 h-4 min-w-4 px-1 rounded-full bg-[var(--color-accent)] text-white text-[9px] font-bold grid place-items-center"
+              title={`${hasPendingSuggestion} sugerencia${hasPendingSuggestion === 1 ? "" : "s"} pendiente${hasPendingSuggestion === 1 ? "" : "s"}`}
+            >
+              {hasPendingSuggestion}
+            </span>
+          ) : null}
         </div>
       )}
       {isLeaf && node.wordCount > 0 && (
@@ -691,11 +746,17 @@ const STATUS_COLORS: Record<string, string> = {
 function SectionEditor({
   project,
   node,
+  numbering,
+  suggestions,
   onUpdate,
+  onSuggestionsChange,
 }: {
   project: Project;
   node: OutlineNode | null;
+  numbering: Record<string, string | null>;
+  suggestions: Suggestion[];
   onUpdate: (patch: Partial<OutlineNode>) => void;
+  onSuggestionsChange: (next: Suggestion[]) => void;
 }) {
   const [, startTransition] = useTransition();
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -775,13 +836,22 @@ function SectionEditor({
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <Badge variant="muted">
+              {numbering[node.id] && (
+                <span className="font-mono mr-1.5">
+                  {numbering[node.id]}
+                </span>
+              )}
               {node.kind === "section"
                 ? "Sección"
                 : node.kind === "lesson"
                   ? "Lección"
                   : node.kind === "chapter"
                     ? "Capítulo"
-                    : "Módulo"}
+                    : node.kind === "module"
+                      ? "Módulo"
+                      : node.kind === "frontmatter"
+                        ? "Preliminar"
+                        : "Cierre"}
             </Badge>
             <h2 className="text-2xl font-semibold tracking-tight mt-2">
               {node.title}
@@ -835,6 +905,27 @@ function SectionEditor({
         </div>
       </div>
       <div className="flex-1 overflow-y-auto px-8 py-6 max-w-4xl mx-auto w-full">
+        <SuggestionsBox
+          projectId={project.id}
+          suggestions={suggestions.filter((s) => s.nodeId === node.id)}
+          onApplied={(id, content) => {
+            onUpdate({ content, status: "in_progress" });
+            onSuggestionsChange(
+              suggestions.map((s) =>
+                s.id === id
+                  ? { ...s, status: "applied", appliedAt: new Date() }
+                  : s
+              )
+            );
+          }}
+          onDismissed={(id) => {
+            onSuggestionsChange(
+              suggestions.map((s) =>
+                s.id === id ? { ...s, status: "dismissed" } : s
+              )
+            );
+          }}
+        />
         <RichEditor
           key={node.id}
           initialHtml={node.content}
@@ -953,6 +1044,8 @@ const TOOL_LABELS: Record<string, string> = {
   move_node: "Reordenando",
   append_to_section: "Agregando contenido",
   replace_section_content: "Reemplazando contenido",
+  insert_decoration: "Insertando accesorio",
+  leave_suggestion: "Dejando idea en el capítulo",
 };
 
 function AIPanel({

@@ -1,7 +1,7 @@
 import { eq, and, asc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db } from "@/lib/db";
-import { outlineNodes, projects } from "@/lib/schema";
+import { outlineNodes, projects, suggestions } from "@/lib/schema";
 import { getMissingCoreSettings } from "@/lib/project-validation";
 import {
   DECORATION_KINDS,
@@ -29,7 +29,8 @@ export type ToolName =
   | "move_node"
   | "append_to_section"
   | "replace_section_content"
-  | "insert_decoration";
+  | "insert_decoration"
+  | "leave_suggestion";
 
 export const TOOLS: Anthropic.Messages.Tool[] = [
   {
@@ -139,6 +140,26 @@ export const TOOLS: Anthropic.Messages.Tool[] = [
         html: { type: "string" },
       },
       required: ["nodeId", "html"],
+    },
+  },
+  {
+    name: "leave_suggestion",
+    description:
+      "Deja una sugerencia pendiente en un capítulo o sección específica. La sugerencia aparecerá como un box arriba del editor de ese nodo, y el autor podrá ejecutarla con un click ('Ejecutar con IA') que desarrolla el contenido completo a partir de tu idea. Úsala cuando el usuario te dé ideas en el chat que correspondan a OTRO nodo distinto al que está abierto, o cuando le digas 'te dejo esta idea en el cap. X'. La sugerencia debe ser específica y accionable: qué cubrir, en qué orden, con qué ángulo.",
+    input_schema: {
+      type: "object",
+      properties: {
+        nodeId: {
+          type: "string",
+          description: "ID del capítulo/sección/módulo/lección donde dejar la idea",
+        },
+        content: {
+          type: "string",
+          description:
+            "Texto de la sugerencia. Sé específico: qué temas cubrir, qué ángulo, qué ejemplos, en qué orden. Markdown OK. 100-300 palabras.",
+        },
+      },
+      required: ["nodeId", "content"],
     },
   },
   {
@@ -402,6 +423,29 @@ export async function executeTool(
           description: `Reemplazó el contenido de "${node.title}" (${wc} palabras nuevas)`,
         });
         return { ok: true };
+      }
+      case "leave_suggestion": {
+        const nodeId = String(rawInput.nodeId ?? "");
+        const content = String(rawInput.content ?? "").trim();
+        if (!nodeId || !content)
+          return { ok: false, error: "nodeId y content requeridos" };
+        const node = await assertNodeOwned(nodeId, ctx);
+        if (!node) return { ok: false, error: "nodo no encontrado" };
+        const id = nanoid();
+        await db.insert(suggestions).values({
+          id,
+          projectId: ctx.projectId,
+          nodeId,
+          content,
+        });
+        await logChange({
+          projectId: ctx.projectId,
+          actor: "ai",
+          kind: "leave_suggestion",
+          nodeId,
+          description: `Dejó una sugerencia en "${node.title}"`,
+        });
+        return { ok: true, data: { id, nodeTitle: node.title } };
       }
       case "insert_decoration": {
         const missing = getMissingCoreSettings(ctx.project);

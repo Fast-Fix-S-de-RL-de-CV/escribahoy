@@ -120,6 +120,17 @@ function initSchema(db: Database.Database) {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS change_log_project_time ON change_log(project_id, created_at);
+    CREATE TABLE IF NOT EXISTS suggestions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      node_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at INTEGER NOT NULL,
+      applied_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS suggestions_node_status ON suggestions(node_id, status);
+    CREATE INDEX IF NOT EXISTS suggestions_project ON suggestions(project_id);
   `);
 
   // Idempotent column adds for existing DBs created before these fields existed.

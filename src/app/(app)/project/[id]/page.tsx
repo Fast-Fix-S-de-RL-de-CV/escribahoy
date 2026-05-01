@@ -6,6 +6,7 @@ import {
   outlineNodes,
   knowledgeFiles,
   aiMessages,
+  suggestions,
 } from "@/lib/schema";
 import { getCurrentUser } from "@/lib/auth";
 import { ProjectWorkspace } from "./workspace";
@@ -44,6 +45,12 @@ export default async function ProjectPage(props: {
     .where(eq(aiMessages.projectId, id))
     .orderBy(asc(aiMessages.createdAt));
 
+  const suggestionRows = await db
+    .select()
+    .from(suggestions)
+    .where(eq(suggestions.projectId, id))
+    .orderBy(asc(suggestions.createdAt));
+
   const initialNodeId =
     nodeParam ?? nodes.find((n) => n.kind === "section" || n.kind === "lesson")?.id ?? null;
 
@@ -59,6 +66,7 @@ export default async function ProjectPage(props: {
         chars: k.extractedText.length,
       }))}
       messages={messages}
+      suggestions={suggestionRows}
       initialNodeId={initialNodeId}
     />
   );
