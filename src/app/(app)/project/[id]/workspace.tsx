@@ -908,8 +908,9 @@ function SectionEditor({
         <SuggestionsBox
           projectId={project.id}
           suggestions={suggestions.filter((s) => s.nodeId === node.id)}
-          onApplied={(id, content) => {
-            onUpdate({ content, status: "in_progress" });
+          onApplied={(id) => {
+            // Server already updated DB. router.refresh() en el SuggestionsBox
+            // re-cargará nodes y suggestions desde el servidor.
             onSuggestionsChange(
               suggestions.map((s) =>
                 s.id === id
