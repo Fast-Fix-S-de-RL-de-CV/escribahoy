@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Badge, Progress } from "@/components/ui/card";
 import { ProjectSettings } from "@/components/project-settings";
 import { HistoryDrawer } from "@/components/history-drawer";
+import { CircularSpinner } from "@/components/circular-spinner";
 import { logoutAction } from "@/lib/actions/auth";
 import {
   addNode,
@@ -971,6 +972,8 @@ function AIPanel({
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
   const [streamTools, setStreamTools] = useState<ToolEvent[]>([]);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [doneToast, setDoneToast] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -978,6 +981,27 @@ function AIPanel({
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, streamText, streamTools]);
+
+  // Tick del timer mientras la IA trabaja.
+  useEffect(() => {
+    if (!streaming) {
+      setElapsedSeconds(0);
+      return;
+    }
+    const start = Date.now();
+    setElapsedSeconds(0);
+    const id = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - start) / 1000));
+    }, 200);
+    return () => clearInterval(id);
+  }, [streaming]);
+
+  // Toast auto-dismiss.
+  useEffect(() => {
+    if (!doneToast) return;
+    const id = setTimeout(() => setDoneToast(null), 2400);
+    return () => clearTimeout(id);
+  }, [doneToast]);
 
   async function send() {
     const text = input.trim();
@@ -1081,6 +1105,12 @@ function AIPanel({
       onMessages([...messages, tempUser, tempAi]);
       setStreamText("");
       setStreamTools([]);
+      const toolsCount = toolsLog.filter((t) => t.status === "ok").length;
+      setDoneToast(
+        toolsCount > 0
+          ? `Listo · ${toolsCount} ${toolsCount === 1 ? "cambio aplicado" : "cambios aplicados"}`
+          : `Listo · ${elapsedSeconds}s`
+      );
       if (outlineChanged) onOutlineChanged();
     } catch {
       const tempErr: AIMessage = {
@@ -1165,10 +1195,33 @@ function AIPanel({
         {messages.map((m) => (
           <Message key={m.id} message={m} />
         ))}
-        {(streamText || streamTools.length > 0) && (
-          <div className="rounded-lg px-3 py-2.5 text-sm leading-relaxed animate-fade-in bg-[var(--color-accent-soft)] mr-6">
+        {streaming && !streamText && streamTools.length === 0 && (
+          <div className="rounded-lg px-3 py-2.5 animate-fade-in bg-[var(--color-accent-soft)] mr-6">
             <div className="text-[10px] uppercase tracking-wider text-[var(--color-fg-subtle)] font-semibold mb-1">
               Escribahoy
+            </div>
+            <div className="flex items-center gap-2 text-sm text-[var(--color-fg-muted)]">
+              <span className="thinking-dots">
+                Pensando<span>.</span><span>.</span><span>.</span>
+              </span>
+              <span className="text-xs text-[var(--color-fg-subtle)] ml-auto">
+                {elapsedSeconds}s
+              </span>
+            </div>
+          </div>
+        )}
+        {(streamText || streamTools.length > 0) && (
+          <div className="rounded-lg px-3 py-2.5 text-sm leading-relaxed animate-fade-in bg-[var(--color-accent-soft)] mr-6">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] uppercase tracking-wider text-[var(--color-fg-subtle)] font-semibold">
+                Escribahoy
+              </span>
+              {streaming && (
+                <span className="text-[10px] text-[var(--color-fg-subtle)] flex items-center gap-1">
+                  <CircularSpinner size={10} strokeWidth={3} />
+                  {elapsedSeconds}s
+                </span>
+              )}
             </div>
             {streamText && (
               <div className="whitespace-pre-wrap">
@@ -1188,7 +1241,7 @@ function AIPanel({
                       className="flex items-center gap-2 text-xs text-[var(--color-fg-muted)]"
                     >
                       {t.status === "running" ? (
-                        <Loader2Icon className="h-3 w-3 animate-spin" />
+                        <CircularSpinner size={12} strokeWidth={3} />
                       ) : t.status === "ok" ? (
                         <CheckIcon className="h-3 w-3 text-[var(--color-success)]" />
                       ) : (
@@ -1208,7 +1261,16 @@ function AIPanel({
           </div>
         )}
       </div>
-      <div className="border-t border-[var(--color-border)] p-3">
+      <div className="border-t border-[var(--color-border)] p-3 relative">
+        {doneToast && (
+          <div
+            className="absolute -top-9 left-1/2 -translate-x-1/2 bg-[var(--color-fg)] text-[var(--color-bg)] text-xs px-3 py-1.5 rounded-full shadow-md flex items-center gap-1.5 animate-pop-fade pointer-events-none whitespace-nowrap"
+            role="status"
+          >
+            <CheckIcon className="h-3 w-3" />
+            {doneToast}
+          </div>
+        )}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -1219,7 +1281,11 @@ function AIPanel({
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Pregunta o cuéntame una idea..."
+            placeholder={
+              streaming
+                ? "Generando... puedes ir escribiendo lo siguiente"
+                : "Pregunta o cuéntame una idea..."
+            }
             rows={2}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -1227,23 +1293,34 @@ function AIPanel({
                 send();
               }
             }}
-            disabled={streaming}
             className="flex-1 text-sm rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
           />
           <Button
             type="submit"
             size="icon"
             disabled={!input.trim() || streaming}
+            title={
+              streaming
+                ? `Escribahoy está trabajando... ${elapsedSeconds}s`
+                : "Enviar"
+            }
+            className={streaming ? "cursor-wait" : ""}
           >
             {streaming ? (
-              <Loader2Icon className="h-4 w-4 animate-spin" />
+              <CircularSpinner size={16} className="text-white" />
             ) : (
               <SendHorizontalIcon className="h-4 w-4" />
             )}
           </Button>
         </form>
-        <p className="text-[10px] text-[var(--color-fg-subtle)] mt-1.5">
-          Enter para enviar · Shift+Enter para nueva línea
+        <p className="text-[10px] text-[var(--color-fg-subtle)] mt-1.5 flex items-center justify-between">
+          <span>Enter para enviar · Shift+Enter para nueva línea</span>
+          {streaming && (
+            <span className="text-[var(--color-accent)] flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-accent)] animate-pulse-soft" />
+              IA trabajando · {elapsedSeconds}s
+            </span>
+          )}
         </p>
       </div>
     </aside>
