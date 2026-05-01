@@ -758,12 +758,43 @@ function SectionEditor({
   onUpdate: (patch: Partial<OutlineNode>) => void;
   onSuggestionsChange: (next: Suggestion[]) => void;
 }) {
+  const router = useRouter();
   const [, startTransition] = useTransition();
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [saving, setSaving] = useState(false);
   const [generatingScript, setGeneratingScript] = useState(false);
+  const [redistributing, setRedistributing] = useState(false);
+  const [redistributeError, setRedistributeError] = useState<string | null>(null);
   const isLesson = node?.kind === "lesson";
+  const isContainer = node?.kind === "chapter" || node?.kind === "module";
+  // Heurística: capítulo con > 300 palabras en su cuerpo es síntoma de un
+  // bug viejo donde apply-suggestion escribía todo en el capítulo en vez
+  // de distribuir en sus secciones. Mostramos el banner para rescatarlo.
+  const needsRedistribute =
+    isContainer && node && node.wordCount > 300;
+
+  async function redistributeChapter() {
+    if (!node) return;
+    setRedistributing(true);
+    setRedistributeError(null);
+    try {
+      const res = await fetch("/api/ai/redistribute-chapter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nodeId: node.id }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? "no se pudo redistribuir");
+      }
+      router.refresh();
+    } catch (e) {
+      setRedistributeError(e instanceof Error ? e.message : "error");
+    } finally {
+      setRedistributing(false);
+    }
+  }
 
   function scheduleSave(content: string) {
     if (!node) return;
@@ -905,6 +936,50 @@ function SectionEditor({
         </div>
       </div>
       <div className="flex-1 overflow-y-auto px-8 py-6 max-w-4xl mx-auto w-full">
+        {needsRedistribute && (
+          <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-4">
+            <div className="flex items-start gap-2 text-sm text-amber-900">
+              <AlertTriangleIcon className="h-4 w-4 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <div className="font-semibold">
+                  Este capítulo tiene contenido en su cuerpo
+                </div>
+                <p className="text-xs mt-1 leading-relaxed">
+                  Un capítulo normalmente solo lleva una intro corta. El
+                  contenido largo va en sus secciones ({node.wordCount}{" "}
+                  palabras detectadas aquí). Puedo redistribuir tu texto entre
+                  las secciones existentes y crear nuevas si hace falta — sin
+                  inventar contenido nuevo.
+                </p>
+                {redistributeError && (
+                  <p className="text-xs text-[var(--color-danger)] mt-2">
+                    {redistributeError}
+                  </p>
+                )}
+                <div className="mt-3 flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    onClick={redistributeChapter}
+                    disabled={redistributing}
+                    className="bg-amber-600 hover:bg-amber-700 text-white"
+                  >
+                    {redistributing ? (
+                      <>
+                        <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
+                        Redistribuyendo...
+                      </>
+                    ) : (
+                      <>
+                        <SparklesIcon className="h-3.5 w-3.5" />
+                        Redistribuir en secciones con IA
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         <SuggestionsBox
           projectId={project.id}
           suggestions={suggestions.filter((s) => s.nodeId === node.id)}
