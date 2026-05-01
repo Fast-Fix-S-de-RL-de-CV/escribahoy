@@ -2,12 +2,22 @@ import { eq, and, asc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db } from "@/lib/db";
 import { outlineNodes, projects } from "@/lib/schema";
+import { getMissingCoreSettings } from "@/lib/project-validation";
+import {
+  DECORATION_KINDS,
+  renderDecorationHtml,
+  type DecorationKind,
+} from "@/lib/decorations";
+import type { Project } from "@/lib/schema";
 import type Anthropic from "@anthropic-ai/sdk";
+
+export { DECORATION_KINDS, type DecorationKind };
 
 export type ToolCtx = {
   projectId: string;
   userId: string;
   isBook: boolean;
+  project: Project;
 };
 
 export type ToolName =
@@ -18,7 +28,7 @@ export type ToolName =
   | "move_node"
   | "append_to_section"
   | "replace_section_content"
-  | "regenerate_outline";
+  | "insert_decoration";
 
 export const TOOLS: Anthropic.Messages.Tool[] = [
   {
@@ -128,6 +138,46 @@ export const TOOLS: Anthropic.Messages.Tool[] = [
         html: { type: "string" },
       },
       required: ["nodeId", "html"],
+    },
+  },
+  {
+    name: "insert_decoration",
+    description:
+      "Inserta un accesorio de libro al final de la sección: una frase destacada (pullquote), un cuadro de tip (callout), un epígrafe al inicio de capítulo (epigraph), una definición de término (definition), un ejercicio para el lector (exercise), un dato impactante (stat) o un recap final (recap). Útil cuando el usuario te pida 'agrega una cita', 'mete un dato curioso', 'pon un epígrafe de fulanito', 'cierra con un ejercicio'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        nodeId: { type: "string" },
+        kind: {
+          type: "string",
+          enum: [
+            "pullquote",
+            "callout",
+            "epigraph",
+            "definition",
+            "exercise",
+            "recap",
+            "stat",
+          ],
+          description:
+            "Tipo de accesorio: pullquote (frase grande), callout (tip), epigraph (cita atribuida al inicio), definition (término), exercise (acción), recap (resumen final), stat (dato).",
+        },
+        text: {
+          type: "string",
+          description: "Texto del accesorio.",
+        },
+        attribution: {
+          type: "string",
+          description:
+            "Autor o fuente (solo para epigraph, pullquote, stat). Opcional.",
+        },
+        title: {
+          type: "string",
+          description:
+            "Título corto opcional (callout, definition, exercise, recap).",
+        },
+      },
+      required: ["nodeId", "kind", "text"],
     },
   },
 ];
@@ -248,6 +298,13 @@ export async function executeTool(
         return { ok: true };
       }
       case "append_to_section": {
+        const missing = getMissingCoreSettings(ctx.project);
+        if (missing.length) {
+          return {
+            ok: false,
+            error: `Antes de escribir contenido, completa la configuración del proyecto: ${missing.join(", ")}. El usuario debe abrir 'Configurar' y llenar esos campos.`,
+          };
+        }
         const nodeId = String(rawInput.nodeId ?? "");
         const html = String(rawInput.html ?? "");
         if (!nodeId || !html) return { ok: false, error: "nodeId y html requeridos" };
@@ -268,6 +325,13 @@ export async function executeTool(
         return { ok: true };
       }
       case "replace_section_content": {
+        const missing = getMissingCoreSettings(ctx.project);
+        if (missing.length) {
+          return {
+            ok: false,
+            error: `Antes de escribir contenido, completa la configuración del proyecto: ${missing.join(", ")}.`,
+          };
+        }
         const nodeId = String(rawInput.nodeId ?? "");
         const html = String(rawInput.html ?? "");
         if (!nodeId) return { ok: false, error: "nodeId requerido" };
@@ -279,6 +343,42 @@ export async function executeTool(
           .update(outlineNodes)
           .set({
             content: html,
+            wordCount: wc,
+            status: wc > 50 ? "in_progress" : wc > 0 ? "draft" : "empty",
+            updatedAt: new Date(),
+          })
+          .where(eq(outlineNodes.id, nodeId));
+        return { ok: true };
+      }
+      case "insert_decoration": {
+        const missing = getMissingCoreSettings(ctx.project);
+        if (missing.length) {
+          return {
+            ok: false,
+            error: `Antes de insertar accesorios, completa la configuración del proyecto: ${missing.join(", ")}.`,
+          };
+        }
+        const nodeId = String(rawInput.nodeId ?? "");
+        const kind = String(rawInput.kind ?? "") as DecorationKind;
+        const text = String(rawInput.text ?? "").trim();
+        const attribution = rawInput.attribution
+          ? String(rawInput.attribution).trim()
+          : "";
+        const title = rawInput.title ? String(rawInput.title).trim() : "";
+        if (!nodeId || !text) return { ok: false, error: "nodeId y text requeridos" };
+        if (!(DECORATION_KINDS as readonly string[]).includes(kind)) {
+          return { ok: false, error: "kind inválido" };
+        }
+        const node = await assertNodeOwned(nodeId, ctx);
+        if (!node) return { ok: false, error: "nodo no encontrado" };
+        const html = renderDecorationHtml(kind, { text, attribution, title });
+        const newContent = (node.content || "") + html;
+        const wc = newContent.replace(/<[^>]*>/g, " ").trim().split(/\s+/)
+          .filter(Boolean).length;
+        await db
+          .update(outlineNodes)
+          .set({
+            content: newContent,
             wordCount: wc,
             status: wc > 50 ? "in_progress" : wc > 0 ? "draft" : "empty",
             updatedAt: new Date(),

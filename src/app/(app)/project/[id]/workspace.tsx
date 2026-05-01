@@ -38,6 +38,8 @@ import {
 import type { OutlineNode, Project, AIMessage, User } from "@/lib/schema";
 import { cn, formatRelative, plural, wordCount } from "@/lib/utils";
 import { RichEditor } from "@/components/rich-editor";
+import { getMissingCoreSettings } from "@/lib/project-validation";
+import { AlertTriangleIcon } from "lucide-react";
 
 type KbItem = { id: string; name: string; sizeBytes: number; chars: number };
 
@@ -65,6 +67,11 @@ export function ProjectWorkspace({
   const [showSettings, setShowSettings] = useState(false);
   // Sync server-side updates back into local state when they come via router.refresh().
   useEffect(() => setNodes(initialNodes), [initialNodes]);
+
+  const missingCore = useMemo(
+    () => getMissingCoreSettings(project),
+    [project]
+  );
 
   const activeNode = useMemo(
     () => nodes.find((n) => n.id === activeNodeId) ?? null,
@@ -100,6 +107,29 @@ export function ProjectWorkspace({
         onOpenKb={() => setShowKb(true)}
         onOpenSettings={() => setShowSettings(true)}
       />
+      {missingCore.length > 0 && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-start gap-2 text-sm text-amber-900 min-w-0">
+            <AlertTriangleIcon className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <span>
+              <strong>Configura tu proyecto antes de que la IA escriba.</strong>{" "}
+              Faltan: {missingCore.join(", ")}.{" "}
+              <span className="text-amber-800">
+                Sin estos datos, la IA no podrá agregar contenido coherente a
+                tus capítulos.
+              </span>
+            </span>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => setShowSettings(true)}
+            className="bg-amber-600 hover:bg-amber-700 text-white"
+          >
+            <Settings2Icon className="h-3.5 w-3.5" />
+            Configurar ahora
+          </Button>
+        </div>
+      )}
       <div className="flex-1 grid grid-cols-1 md:grid-cols-[280px_1fr_360px] min-h-0">
         <OutlinePanel
           project={project}

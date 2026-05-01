@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
     projectId: project.id,
     userId: user.id,
     isBook: project.type === "book",
+    project,
   };
 
   // Save user message immediately.

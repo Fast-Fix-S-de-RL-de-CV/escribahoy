@@ -16,6 +16,7 @@ import {
   generateOutlineForProject,
 } from "@/lib/actions/project";
 import { BOOK_KINDS, COURSE_KINDS } from "@/lib/project-kinds";
+import { getMissingCoreSettings } from "@/lib/project-validation";
 import type { Project } from "@/lib/schema";
 
 const TONES = ["directo", "narrativo", "academico", "conversacional"];
@@ -69,6 +70,14 @@ export function ProjectSettings({
 
   const isBook = project.type === "book";
   const KINDS = isBook ? BOOK_KINDS : COURSE_KINDS;
+
+  const missingCore = getMissingCoreSettings({
+    ...project,
+    kindDetail: form.kindDetail || null,
+    audience: form.audience || null,
+    tone: form.tone || null,
+    perspective: form.perspective || null,
+  });
 
   function update<K extends keyof typeof form>(key: K, val: (typeof form)[K]) {
     setForm((f) => ({ ...f, [key]: val }));
@@ -157,6 +166,15 @@ export function ProjectSettings({
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
+          {missingCore.length > 0 && (
+            <div className="rounded-md bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900 flex items-start gap-2">
+              <AlertTriangleIcon className="h-4 w-4 flex-shrink-0 mt-0.5" />
+              <div>
+                <strong>Faltan campos obligatorios para que la IA escriba:</strong>{" "}
+                {missingCore.join(", ")}.
+              </div>
+            </div>
+          )}
           <Section title="Esencial">
             <div>
               <Label>Título</Label>
@@ -184,6 +202,7 @@ export function ProjectSettings({
 
           <Section
             title={`Tipo de ${isBook ? "libro" : "curso"}`}
+            required
             help="Pasa el cursor sobre cada opción para ver la descripción y autores famosos del género."
           >
             <div className="space-y-2">
@@ -238,9 +257,11 @@ export function ProjectSettings({
             )}
           </Section>
 
-          <Section title="Audiencia y tono">
+          <Section title="Audiencia y tono" required>
             <div>
-              <Label>Audiencia</Label>
+              <Label>
+                Audiencia <RequiredMark />
+              </Label>
               <Input
                 value={form.audience}
                 onChange={(e) => update("audience", e.target.value)}
@@ -248,7 +269,9 @@ export function ProjectSettings({
               />
             </div>
             <div>
-              <Label>Tono</Label>
+              <Label>
+                Tono <RequiredMark />
+              </Label>
               <select
                 value={form.tone}
                 onChange={(e) => update("tone", e.target.value)}
@@ -290,13 +313,15 @@ export function ProjectSettings({
               </select>
             </div>
             <div>
-              <Label>Persona / punto de vista</Label>
+              <Label>
+                Persona / punto de vista <RequiredMark />
+              </Label>
               <select
                 value={form.perspective}
                 onChange={(e) => update("perspective", e.target.value)}
                 className="flex h-10 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 text-sm"
               >
-                <option value="">— sin preferencia —</option>
+                <option value="">— elegir —</option>
                 {PERSPECTIVES.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.label}
@@ -431,16 +456,25 @@ export function ProjectSettings({
 function Section({
   title,
   help,
+  required,
   children,
 }: {
   title: string;
   help?: string;
+  required?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <section>
-      <div className="text-xs font-semibold uppercase tracking-wider text-[var(--color-fg-subtle)] mb-3">
-        {title}
+      <div className="flex items-center gap-2 mb-3">
+        <div className="text-xs font-semibold uppercase tracking-wider text-[var(--color-fg-subtle)]">
+          {title}
+        </div>
+        {required && (
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
+            Obligatorio
+          </span>
+        )}
       </div>
       {help && (
         <p className="text-xs text-[var(--color-fg-muted)] mb-3">{help}</p>
@@ -448,4 +482,8 @@ function Section({
       <div className="space-y-3">{children}</div>
     </section>
   );
+}
+
+function RequiredMark() {
+  return <span className="text-amber-700 ml-0.5">*</span>;
 }
