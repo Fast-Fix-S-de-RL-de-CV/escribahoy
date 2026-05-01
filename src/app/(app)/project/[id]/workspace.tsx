@@ -801,6 +801,7 @@ function SectionEditor({
             isLesson ? "lección" : "sección"
           }... o pídele a Escribahoy que te dé un esqueleto.`}
           onChange={scheduleSave}
+          aiContext={{ projectId: project.id, nodeId: node.id }}
         />
       </div>
       {isLesson && (

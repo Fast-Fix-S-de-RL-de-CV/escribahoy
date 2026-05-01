@@ -74,14 +74,21 @@ const COMMANDS: { id: Cmd; icon: React.ReactNode; title: string }[] = [
   { id: "quote", icon: <QuoteIcon className="h-4 w-4" />, title: "Cita" },
 ];
 
+export type AiContext = {
+  projectId: string;
+  nodeId: string;
+};
+
 export function RichEditor({
   initialHtml,
   onChange,
   placeholder,
+  aiContext,
 }: {
   initialHtml: string;
   onChange: (html: string) => void;
   placeholder?: string;
+  aiContext?: AiContext;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [empty, setEmpty] = useState(!initialHtml || initialHtml === "<p></p>");
@@ -196,6 +203,7 @@ export function RichEditor({
       {decoModal && (
         <DecorationModal
           kind={decoModal}
+          aiContext={aiContext}
           onClose={() => setDecoModal(null)}
           onInsert={appendDecoration}
         />
@@ -204,12 +212,16 @@ export function RichEditor({
   );
 }
 
+type Version = { text: string; attribution?: string; title?: string };
+
 function DecorationModal({
   kind,
+  aiContext,
   onClose,
   onInsert,
 }: {
   kind: DecorationKind;
+  aiContext?: AiContext;
   onClose: () => void;
   onInsert: (
     kind: DecorationKind,
@@ -219,12 +231,79 @@ function DecorationModal({
   const [text, setText] = useState("");
   const [attribution, setAttribution] = useState("");
   const [title, setTitle] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [versions, setVersions] = useState<Version[]>([]);
+  const [versionIdx, setVersionIdx] = useState(-1);
+  const [source, setSource] = useState<string | null>(null);
 
   const showAttribution = ["pullquote", "epigraph", "stat"].includes(kind);
   const showTitle = ["callout", "definition", "exercise", "recap"].includes(
     kind
   );
   const meta = DECORATION_LABELS[kind];
+  const canUseAI = !!aiContext;
+
+  function applyVersion(v: Version) {
+    setText(v.text);
+    setAttribution(v.attribution ?? "");
+    setTitle(v.title ?? "");
+  }
+
+  async function generateWithAI() {
+    if (!aiContext) return;
+    setGenerating(true);
+    setAiError(null);
+    try {
+      const previous = versions
+        .slice(-3)
+        .map((v) => v.text)
+        .join(" / ");
+      const instruction = versions.length
+        ? `Esta es la versión #${versions.length + 1}. Genera una versión DIFERENTE a las anteriores: ${previous}`
+        : undefined;
+      const res = await fetch("/api/ai/generate-decoration", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: aiContext.projectId,
+          nodeId: aiContext.nodeId,
+          kind,
+          instruction,
+        }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? "no se pudo generar");
+      }
+      const data = (await res.json()) as Version & { source?: string };
+      const v: Version = {
+        text: data.text,
+        attribution: data.attribution,
+        title: data.title,
+      };
+      setVersions((vs) => [...vs, v]);
+      setVersionIdx(versions.length);
+      applyVersion(v);
+      if (data.source) setSource(data.source);
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : "error generando");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  function showVersion(idx: number) {
+    if (idx < 0 || idx >= versions.length) return;
+    setVersionIdx(idx);
+    applyVersion(versions[idx]);
+  }
+
+  const sourceLabel: Record<string, string> = {
+    "existing-content": "del contenido escrito",
+    "knowledge-base": "del knowledge base",
+    general: "del conocimiento general",
+  };
 
   return (
     <div
@@ -237,6 +316,69 @@ function DecorationModal({
       >
         <div className="font-semibold">Insertar {meta.label}</div>
         <p className="text-sm text-[var(--color-fg-muted)] mt-1">{meta.hint}</p>
+
+        {canUseAI && (
+          <div className="mt-4 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-muted)]/40 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={generateWithAI}
+                disabled={generating}
+                className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-md bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
+              >
+                {generating ? (
+                  <>⏳ Generando...</>
+                ) : versions.length === 0 ? (
+                  <>✨ Generar con IA</>
+                ) : (
+                  <>↻ Otra versión</>
+                )}
+              </button>
+              {versions.length > 0 && (
+                <div className="flex items-center gap-1 text-xs text-[var(--color-fg-muted)]">
+                  <button
+                    type="button"
+                    onClick={() => showVersion(versionIdx - 1)}
+                    disabled={versionIdx <= 0}
+                    className="h-6 w-6 grid place-items-center rounded hover:bg-[var(--color-bg-muted)] disabled:opacity-30"
+                    title="Versión anterior"
+                  >
+                    ‹
+                  </button>
+                  <span>
+                    {versionIdx + 1}/{versions.length}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => showVersion(versionIdx + 1)}
+                    disabled={versionIdx >= versions.length - 1}
+                    className="h-6 w-6 grid place-items-center rounded hover:bg-[var(--color-bg-muted)] disabled:opacity-30"
+                    title="Siguiente versión"
+                  >
+                    ›
+                  </button>
+                </div>
+              )}
+            </div>
+            {versions.length > 0 && source && (
+              <div className="text-[11px] text-[var(--color-fg-subtle)] mt-1.5">
+                Fuente: {sourceLabel[source] ?? source}
+              </div>
+            )}
+            {aiError && (
+              <div className="text-xs text-[var(--color-danger)] mt-2">
+                {aiError}
+              </div>
+            )}
+            {!versions.length && !generating && (
+              <div className="text-[11px] text-[var(--color-fg-subtle)] mt-1.5">
+                Usa el contenido escrito de esta sección, luego el knowledge
+                base, luego conocimiento general.
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="space-y-3 mt-4">
           {showTitle && (
             <div>
