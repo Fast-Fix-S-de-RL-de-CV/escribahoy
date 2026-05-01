@@ -17,6 +17,7 @@ import { getAnthropic, MODEL, SYSTEM_BASE } from "@/lib/anthropic";
 
 const CreateProjectSchema = z.object({
   type: z.enum(["book", "course"]),
+  kindDetail: z.string().trim().optional(),
   title: z.string().min(2).trim(),
   description: z.string().trim().optional(),
   audience: z.string().trim().optional(),
@@ -26,6 +27,7 @@ const CreateProjectSchema = z.object({
 
 export async function createProject(input: {
   type: "book" | "course";
+  kindDetail?: string;
   title: string;
   description?: string;
   audience?: string;
@@ -40,6 +42,7 @@ export async function createProject(input: {
     id,
     userId: user.id,
     type: parsed.type,
+    kindDetail: parsed.kindDetail,
     title: parsed.title,
     description: parsed.description,
     audience: parsed.audience,
@@ -49,6 +52,39 @@ export async function createProject(input: {
     updatedAt: now,
   });
   return { id };
+}
+
+const UpdateProjectSchema = z.object({
+  id: z.string(),
+  kindDetail: z.string().trim().optional(),
+  title: z.string().trim().min(2).optional(),
+  subtitle: z.string().trim().optional().nullable(),
+  description: z.string().trim().optional().nullable(),
+  audience: z.string().trim().optional().nullable(),
+  tone: z.string().trim().optional().nullable(),
+  goal: z.string().trim().optional().nullable(),
+  language: z.string().trim().optional(),
+  perspective: z.string().trim().optional().nullable(),
+  formality: z.string().trim().optional().nullable(),
+  styleNotes: z.string().trim().optional().nullable(),
+  glossary: z.string().trim().optional().nullable(),
+  avoidTerms: z.string().trim().optional().nullable(),
+});
+
+export async function updateProject(input: z.infer<typeof UpdateProjectSchema>) {
+  const user = await requireUser();
+  const parsed = UpdateProjectSchema.parse(input);
+  const owns = await db
+    .select()
+    .from(projects)
+    .where(and(eq(projects.id, parsed.id), eq(projects.userId, user.id)))
+    .limit(1);
+  if (!owns.length) throw new Error("Proyecto no encontrado");
+  const { id: _id, ...rest } = parsed;
+  await db
+    .update(projects)
+    .set({ ...rest, updatedAt: new Date() })
+    .where(eq(projects.id, parsed.id));
 }
 
 export async function generateOutlineForProject(projectId: string) {
@@ -82,9 +118,17 @@ export async function generateOutlineForProject(projectId: string) {
   const prompt = `Estoy creando ${isBook ? "un libro" : "un curso"} con estos datos:
 
 Título: ${project.title}
-${project.description ? `Descripción: ${project.description}\n` : ""}${project.audience ? `Audiencia: ${project.audience}\n` : ""}${project.tone ? `Tono: ${project.tone}\n` : ""}${project.goal ? `Meta del proyecto: ${project.goal}\n` : ""}
+${project.kindDetail ? `Tipo (${isBook ? "género" : "formato"}): ${project.kindDetail}\n` : ""}${project.description ? `Descripción: ${project.description}\n` : ""}${project.audience ? `Audiencia: ${project.audience}\n` : ""}${project.tone ? `Tono: ${project.tone}\n` : ""}${project.perspective ? `Persona/punto de vista: ${project.perspective}\n` : ""}${project.formality ? `Formalidad: ${project.formality}\n` : ""}${project.styleNotes ? `Notas de estilo: ${project.styleNotes}\n` : ""}${project.glossary ? `Glosario obligatorio: ${project.glossary}\n` : ""}${project.avoidTerms ? `Términos a evitar: ${project.avoidTerms}\n` : ""}${project.goal ? `Meta del proyecto: ${project.goal}\n` : ""}
 
-${knowledgeContext ? `Material de referencia (knowledge base):\n${knowledgeContext}\n\n` : ""}Genera un outline COMPLETO con ${isBook ? "8-12 capítulos" : "6-10 módulos"}. Cada ${isBook ? "capítulo" : "módulo"} debe incluir 3-5 ${isBook ? "secciones" : "lecciones"} dentro.
+${knowledgeContext ? `Material de referencia (knowledge base):\n${knowledgeContext}\n\n` : ""}Genera un outline COMPLETO adecuado al tipo "${project.kindDetail ?? (isBook ? "libro general" : "curso general")}". Reglas según formato:
+- Para una novela / cuentos / poesía: capítulos por escenas, arcos, voz narrativa.
+- Para ensayo / no-ficción narrativa: tesis, argumentos, contra-argumentos, conclusión.
+- Para auto-ayuda / negocios / manual: problema, marco, pasos accionables, cierre.
+- Para técnico / académico: fundamentos, profundización, casos, referencias.
+- Para curso bootcamp / técnico: fundamentos → práctica → proyecto final.
+- Para masterclass / fundamentos: claridad conceptual, no exhaustividad.
+
+Tamaño aproximado: ${isBook ? "8-12 capítulos" : "6-10 módulos"}, cada uno con 3-5 ${isBook ? "secciones" : "lecciones"}.
 
 Responde ÚNICAMENTE con un JSON válido (sin markdown, sin texto antes ni después) con este formato exacto:
 

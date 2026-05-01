@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeftIcon,
   BookOpenIcon,
@@ -21,9 +22,11 @@ import {
   PlayIcon,
   RotateCcwIcon,
   UploadCloudIcon,
+  Settings2Icon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Progress } from "@/components/ui/card";
+import { ProjectSettings } from "@/components/project-settings";
 import { logoutAction } from "@/lib/actions/auth";
 import {
   addNode,
@@ -53,11 +56,15 @@ export function ProjectWorkspace({
   messages: AIMessage[];
   initialNodeId: string | null;
 }) {
+  const router = useRouter();
   const [nodes, setNodes] = useState(initialNodes);
   const [kb, setKb] = useState(initialKb);
   const [messages, setMessages] = useState(initialMessages);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(initialNodeId);
   const [showKb, setShowKb] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  // Sync server-side updates back into local state when they come via router.refresh().
+  useEffect(() => setNodes(initialNodes), [initialNodes]);
 
   const activeNode = useMemo(
     () => nodes.find((n) => n.id === activeNodeId) ?? null,
@@ -91,6 +98,7 @@ export function ProjectWorkspace({
         user={user}
         kpis={kpis}
         onOpenKb={() => setShowKb(true)}
+        onOpenSettings={() => setShowSettings(true)}
       />
       <div className="flex-1 grid grid-cols-1 md:grid-cols-[280px_1fr_360px] min-h-0">
         <OutlinePanel
@@ -149,6 +157,7 @@ export function ProjectWorkspace({
           activeNode={activeNode}
           messages={messages}
           onMessages={setMessages}
+          onOutlineChanged={() => router.refresh()}
         />
       </div>
       {showKb && (
@@ -157,6 +166,12 @@ export function ProjectWorkspace({
           kb={kb}
           onClose={() => setShowKb(false)}
           onChange={setKb}
+        />
+      )}
+      {showSettings && (
+        <ProjectSettings
+          project={project}
+          onClose={() => setShowSettings(false)}
         />
       )}
     </div>
@@ -168,11 +183,13 @@ function Topbar({
   user,
   kpis,
   onOpenKb,
+  onOpenSettings,
 }: {
   project: Project;
   user: User;
   kpis: { total: number; completed: number; progress: number; words: number };
   onOpenKb: () => void;
+  onOpenSettings: () => void;
 }) {
   return (
     <header className="border-b border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-4 py-3 flex items-center justify-between gap-4">
@@ -218,6 +235,10 @@ function Topbar({
         <Button variant="outline" size="sm" onClick={onOpenKb}>
           <PaperclipIcon className="h-4 w-4" />
           Knowledge base
+        </Button>
+        <Button variant="outline" size="sm" onClick={onOpenSettings}>
+          <Settings2Icon className="h-4 w-4" />
+          Configurar
         </Button>
         <form action={logoutAction}>
           <button
@@ -725,27 +746,47 @@ function StatusToggle({
   );
 }
 
+type ToolEvent = {
+  name: string;
+  input?: unknown;
+  status: "running" | "ok" | "error";
+  error?: string;
+};
+
+const TOOL_LABELS: Record<string, string> = {
+  rename_node: "Renombrando",
+  update_node_summary: "Actualizando resumen",
+  add_node: "Agregando al outline",
+  delete_node: "Eliminando del outline",
+  move_node: "Reordenando",
+  append_to_section: "Agregando contenido",
+  replace_section_content: "Reemplazando contenido",
+};
+
 function AIPanel({
   project,
   activeNode,
   messages,
   onMessages,
+  onOutlineChanged,
 }: {
   project: Project;
   activeNode: OutlineNode | null;
   messages: AIMessage[];
   onMessages: (m: AIMessage[]) => void;
+  onOutlineChanged: () => void;
 }) {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
+  const [streamTools, setStreamTools] = useState<ToolEvent[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, streamText]);
+  }, [messages, streamText, streamTools]);
 
   async function send() {
     const text = input.trim();
@@ -762,6 +803,10 @@ function AIPanel({
     onMessages([...messages, tempUser]);
     setStreaming(true);
     setStreamText("");
+    setStreamTools([]);
+    let outlineChanged = false;
+    let assistantText = "";
+    const toolsLog: ToolEvent[] = [];
     try {
       const res = await fetch("/api/ai/chat", {
         method: "POST",
@@ -772,28 +817,80 @@ function AIPanel({
           message: text,
         }),
       });
-      if (!res.ok || !res.body) {
-        throw new Error("error");
-      }
+      if (!res.ok || !res.body) throw new Error("error");
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let acc = "";
+      let buf = "";
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
-        acc += decoder.decode(value, { stream: true });
-        setStreamText(acc);
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          let evt: Record<string, unknown>;
+          try {
+            evt = JSON.parse(trimmed);
+          } catch {
+            continue;
+          }
+          if (evt.type === "delta") {
+            assistantText += String(evt.text ?? "");
+            setStreamText(assistantText);
+          } else if (evt.type === "tool") {
+            const ev = {
+              name: String(evt.name ?? ""),
+              input: evt.input,
+              status: (evt.status as ToolEvent["status"]) ?? "running",
+              error: evt.error ? String(evt.error) : undefined,
+            };
+            // If a "running" entry exists for the same tool/input, replace; else append.
+            const idx = toolsLog.findIndex(
+              (t) => t.name === ev.name && t.status === "running"
+            );
+            if (idx >= 0 && ev.status !== "running") {
+              toolsLog[idx] = ev;
+            } else {
+              toolsLog.push(ev);
+            }
+            setStreamTools([...toolsLog]);
+          } else if (evt.type === "end") {
+            outlineChanged = Boolean(evt.outlineChanged);
+          } else if (evt.type === "error") {
+            assistantText +=
+              (assistantText ? "\n\n" : "") +
+              `❌ ${evt.error ?? "error en el stream"}`;
+            setStreamText(assistantText);
+          }
+        }
       }
+      const finalContent =
+        assistantText +
+        (toolsLog.length
+          ? "\n\n" +
+            toolsLog
+              .map((t) => {
+                const label = TOOL_LABELS[t.name] ?? t.name;
+                const status =
+                  t.status === "ok" ? "✓" : t.status === "error" ? "✗" : "…";
+                return `${status} ${label}${t.error ? ` — ${t.error}` : ""}`;
+              })
+              .join("\n")
+          : "");
       const tempAi: AIMessage = {
         id: "tmp-a-" + Date.now(),
         projectId: project.id,
         nodeId: activeNode?.id ?? null,
         role: "assistant",
-        content: acc,
+        content: finalContent.trim() || "(sin respuesta)",
         createdAt: new Date(),
       };
       onMessages([...messages, tempUser, tempAi]);
       setStreamText("");
+      setStreamTools([]);
+      if (outlineChanged) onOutlineChanged();
     } catch {
       const tempErr: AIMessage = {
         id: "tmp-e-" + Date.now(),
@@ -801,7 +898,7 @@ function AIPanel({
         nodeId: activeNode?.id ?? null,
         role: "assistant",
         content:
-          "❌ No pude responder. Verifica que ANTHROPIC_API_KEY esté configurada en .env.local.",
+          "❌ No pude responder. Verifica que ANTHROPIC_API_KEY esté configurada en .env.production.",
         createdAt: new Date(),
       };
       onMessages([...messages, tempUser, tempErr]);
@@ -877,18 +974,47 @@ function AIPanel({
         {messages.map((m) => (
           <Message key={m.id} message={m} />
         ))}
-        {streamText && (
-          <Message
-            message={{
-              id: "streaming",
-              projectId: project.id,
-              nodeId: null,
-              role: "assistant",
-              content: streamText,
-              createdAt: new Date(),
-            }}
-            streaming
-          />
+        {(streamText || streamTools.length > 0) && (
+          <div className="rounded-lg px-3 py-2.5 text-sm leading-relaxed animate-fade-in bg-[var(--color-accent-soft)] mr-6">
+            <div className="text-[10px] uppercase tracking-wider text-[var(--color-fg-subtle)] font-semibold mb-1">
+              Escribahoy
+            </div>
+            {streamText && (
+              <div className="whitespace-pre-wrap">
+                {streamText}
+                {streaming && !streamTools.length && (
+                  <span className="inline-block h-3 w-0.5 bg-[var(--color-accent)] ml-0.5 animate-pulse-soft align-middle" />
+                )}
+              </div>
+            )}
+            {streamTools.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {streamTools.map((t, i) => {
+                  const label = TOOL_LABELS[t.name] ?? t.name;
+                  return (
+                    <div
+                      key={i}
+                      className="flex items-center gap-2 text-xs text-[var(--color-fg-muted)]"
+                    >
+                      {t.status === "running" ? (
+                        <Loader2Icon className="h-3 w-3 animate-spin" />
+                      ) : t.status === "ok" ? (
+                        <CheckIcon className="h-3 w-3 text-[var(--color-success)]" />
+                      ) : (
+                        <XIcon className="h-3 w-3 text-[var(--color-danger)]" />
+                      )}
+                      <span>{label}</span>
+                      {t.error && (
+                        <span className="text-[var(--color-danger)]">
+                          — {t.error}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
       </div>
       <div className="border-t border-[var(--color-border)] p-3">

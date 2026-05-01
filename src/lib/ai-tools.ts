@@ -1,0 +1,340 @@
+import { eq, and, asc } from "drizzle-orm";
+import { nanoid } from "nanoid";
+import { db } from "@/lib/db";
+import { outlineNodes, projects } from "@/lib/schema";
+import type Anthropic from "@anthropic-ai/sdk";
+
+export type ToolCtx = {
+  projectId: string;
+  userId: string;
+  isBook: boolean;
+};
+
+export type ToolName =
+  | "rename_node"
+  | "update_node_summary"
+  | "add_node"
+  | "delete_node"
+  | "move_node"
+  | "append_to_section"
+  | "replace_section_content"
+  | "regenerate_outline";
+
+export const TOOLS: Anthropic.Messages.Tool[] = [
+  {
+    name: "rename_node",
+    description:
+      "Cambia el título de un capítulo, sección, módulo o lección existente. Usa el ID exacto del nodo del outline.",
+    input_schema: {
+      type: "object",
+      properties: {
+        nodeId: { type: "string", description: "ID del nodo a renombrar" },
+        newTitle: { type: "string", description: "Nuevo título" },
+      },
+      required: ["nodeId", "newTitle"],
+    },
+  },
+  {
+    name: "update_node_summary",
+    description:
+      "Actualiza el resumen (1-2 frases) de un capítulo/sección/módulo/lección. No toca el contenido escrito por el usuario.",
+    input_schema: {
+      type: "object",
+      properties: {
+        nodeId: { type: "string" },
+        summary: { type: "string" },
+      },
+      required: ["nodeId", "summary"],
+    },
+  },
+  {
+    name: "add_node",
+    description:
+      "Agrega un nuevo capítulo/sección/módulo/lección al outline. Si parentId es null, se agrega como capítulo o módulo raíz. La position controla el orden (0 = primero).",
+    input_schema: {
+      type: "object",
+      properties: {
+        parentId: {
+          type: ["string", "null"],
+          description:
+            "ID del nodo padre (capítulo/módulo) o null para crear nodo raíz",
+        },
+        kind: {
+          type: "string",
+          enum: ["chapter", "section", "module", "lesson"],
+        },
+        title: { type: "string" },
+        summary: { type: "string", description: "Resumen breve, opcional" },
+        position: {
+          type: "number",
+          description:
+            "Posición en el orden de hermanos. Si no se da, se agrega al final.",
+        },
+      },
+      required: ["kind", "title"],
+    },
+  },
+  {
+    name: "delete_node",
+    description:
+      "Elimina un nodo del outline. Si es un capítulo/módulo, también borra todas sus secciones/lecciones hijas. NO uses esta tool sin que el usuario lo haya pedido explícitamente.",
+    input_schema: {
+      type: "object",
+      properties: {
+        nodeId: { type: "string" },
+      },
+      required: ["nodeId"],
+    },
+  },
+  {
+    name: "move_node",
+    description:
+      "Reordena un nodo cambiando su parentId y/o su position dentro de los hermanos.",
+    input_schema: {
+      type: "object",
+      properties: {
+        nodeId: { type: "string" },
+        newParentId: { type: ["string", "null"] },
+        newPosition: { type: "number" },
+      },
+      required: ["nodeId", "newPosition"],
+    },
+  },
+  {
+    name: "append_to_section",
+    description:
+      "Agrega contenido HTML al final del cuerpo de una sección/lección. Útil para añadir un párrafo, un ejemplo, una lista. NO uses esto para escribir capítulos enteros — máximo 1-3 párrafos por turno.",
+    input_schema: {
+      type: "object",
+      properties: {
+        nodeId: { type: "string" },
+        html: {
+          type: "string",
+          description:
+            "HTML simple a agregar (p, ul, ol, li, blockquote, strong, em, code).",
+        },
+      },
+      required: ["nodeId", "html"],
+    },
+  },
+  {
+    name: "replace_section_content",
+    description:
+      "REEMPLAZA todo el contenido de una sección con HTML nuevo. SOLO úsala si el usuario dijo explícitamente 'reemplaza' o 'rescribe esto'. Para añadir, usa append_to_section.",
+    input_schema: {
+      type: "object",
+      properties: {
+        nodeId: { type: "string" },
+        html: { type: "string" },
+      },
+      required: ["nodeId", "html"],
+    },
+  },
+];
+
+export type ToolResult =
+  | { ok: true; data?: Record<string, unknown> }
+  | { ok: false; error: string };
+
+export async function executeTool(
+  name: string,
+  rawInput: Record<string, unknown>,
+  ctx: ToolCtx
+): Promise<ToolResult> {
+  try {
+    switch (name as ToolName) {
+      case "rename_node": {
+        const nodeId = String(rawInput.nodeId ?? "");
+        const newTitle = String(rawInput.newTitle ?? "").trim();
+        if (!nodeId || !newTitle) return { ok: false, error: "nodeId y newTitle requeridos" };
+        const found = await assertNodeOwned(nodeId, ctx);
+        if (!found) return { ok: false, error: "nodo no encontrado" };
+        await db
+          .update(outlineNodes)
+          .set({ title: newTitle, updatedAt: new Date() })
+          .where(eq(outlineNodes.id, nodeId));
+        return { ok: true };
+      }
+      case "update_node_summary": {
+        const nodeId = String(rawInput.nodeId ?? "");
+        const summary = String(rawInput.summary ?? "").trim();
+        if (!nodeId) return { ok: false, error: "nodeId requerido" };
+        const found = await assertNodeOwned(nodeId, ctx);
+        if (!found) return { ok: false, error: "nodo no encontrado" };
+        await db
+          .update(outlineNodes)
+          .set({ summary, updatedAt: new Date() })
+          .where(eq(outlineNodes.id, nodeId));
+        return { ok: true };
+      }
+      case "add_node": {
+        const parentId =
+          rawInput.parentId == null ? null : String(rawInput.parentId);
+        const kind = String(rawInput.kind ?? "");
+        const title = String(rawInput.title ?? "").trim();
+        const summary = rawInput.summary ? String(rawInput.summary) : null;
+        if (!["chapter", "section", "module", "lesson"].includes(kind))
+          return { ok: false, error: "kind inválido" };
+        if (!title) return { ok: false, error: "title requerido" };
+        if (parentId) {
+          const ok = await assertNodeOwned(parentId, ctx);
+          if (!ok) return { ok: false, error: "parentId no pertenece al proyecto" };
+        }
+        const siblings = await db
+          .select({ position: outlineNodes.position })
+          .from(outlineNodes)
+          .where(
+            and(
+              eq(outlineNodes.projectId, ctx.projectId),
+              parentId
+                ? eq(outlineNodes.parentId, parentId)
+                : eq(outlineNodes.kind, kind as "chapter" | "module")
+            )
+          );
+        const requestedPos =
+          typeof rawInput.position === "number"
+            ? Math.max(0, Math.floor(rawInput.position))
+            : siblings.length;
+        const id = nanoid();
+        const now = new Date();
+        await db.insert(outlineNodes).values({
+          id,
+          projectId: ctx.projectId,
+          parentId,
+          kind: kind as "chapter" | "section" | "module" | "lesson",
+          title,
+          summary,
+          position: requestedPos,
+          targetWords: kind === "section" ? 800 : kind === "lesson" ? 400 : 0,
+          createdAt: now,
+          updatedAt: now,
+        });
+        return { ok: true, data: { id } };
+      }
+      case "delete_node": {
+        const nodeId = String(rawInput.nodeId ?? "");
+        const found = await assertNodeOwned(nodeId, ctx);
+        if (!found) return { ok: false, error: "nodo no encontrado" };
+        // Delete children first (one level — outline only has 2 levels).
+        await db
+          .delete(outlineNodes)
+          .where(
+            and(
+              eq(outlineNodes.parentId, nodeId),
+              eq(outlineNodes.projectId, ctx.projectId)
+            )
+          );
+        await db.delete(outlineNodes).where(eq(outlineNodes.id, nodeId));
+        return { ok: true };
+      }
+      case "move_node": {
+        const nodeId = String(rawInput.nodeId ?? "");
+        const newParentId =
+          rawInput.newParentId == null ? null : String(rawInput.newParentId);
+        const newPosition =
+          typeof rawInput.newPosition === "number"
+            ? Math.max(0, Math.floor(rawInput.newPosition))
+            : 0;
+        const found = await assertNodeOwned(nodeId, ctx);
+        if (!found) return { ok: false, error: "nodo no encontrado" };
+        await db
+          .update(outlineNodes)
+          .set({
+            parentId: newParentId,
+            position: newPosition,
+            updatedAt: new Date(),
+          })
+          .where(eq(outlineNodes.id, nodeId));
+        return { ok: true };
+      }
+      case "append_to_section": {
+        const nodeId = String(rawInput.nodeId ?? "");
+        const html = String(rawInput.html ?? "");
+        if (!nodeId || !html) return { ok: false, error: "nodeId y html requeridos" };
+        const node = await assertNodeOwned(nodeId, ctx);
+        if (!node) return { ok: false, error: "nodo no encontrado" };
+        const newContent = (node.content || "") + html;
+        const wc = newContent.replace(/<[^>]*>/g, " ").trim().split(/\s+/)
+          .filter(Boolean).length;
+        await db
+          .update(outlineNodes)
+          .set({
+            content: newContent,
+            wordCount: wc,
+            status: wc > 50 ? "in_progress" : wc > 0 ? "draft" : "empty",
+            updatedAt: new Date(),
+          })
+          .where(eq(outlineNodes.id, nodeId));
+        return { ok: true };
+      }
+      case "replace_section_content": {
+        const nodeId = String(rawInput.nodeId ?? "");
+        const html = String(rawInput.html ?? "");
+        if (!nodeId) return { ok: false, error: "nodeId requerido" };
+        const node = await assertNodeOwned(nodeId, ctx);
+        if (!node) return { ok: false, error: "nodo no encontrado" };
+        const wc = html.replace(/<[^>]*>/g, " ").trim().split(/\s+/)
+          .filter(Boolean).length;
+        await db
+          .update(outlineNodes)
+          .set({
+            content: html,
+            wordCount: wc,
+            status: wc > 50 ? "in_progress" : wc > 0 ? "draft" : "empty",
+            updatedAt: new Date(),
+          })
+          .where(eq(outlineNodes.id, nodeId));
+        return { ok: true };
+      }
+      default:
+        return { ok: false, error: `tool desconocida: ${name}` };
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "error ejecutando tool",
+    };
+  }
+}
+
+async function assertNodeOwned(nodeId: string, ctx: ToolCtx) {
+  const rows = await db
+    .select()
+    .from(outlineNodes)
+    .innerJoin(projects, eq(outlineNodes.projectId, projects.id))
+    .where(
+      and(
+        eq(outlineNodes.id, nodeId),
+        eq(outlineNodes.projectId, ctx.projectId),
+        eq(projects.userId, ctx.userId)
+      )
+    )
+    .limit(1);
+  return rows[0]?.outline_nodes ?? null;
+}
+
+export async function renderOutlineWithIds(projectId: string): Promise<string> {
+  const nodes = await db
+    .select()
+    .from(outlineNodes)
+    .where(eq(outlineNodes.projectId, projectId))
+    .orderBy(asc(outlineNodes.position));
+  const roots = nodes
+    .filter((n) => !n.parentId)
+    .sort((a, b) => a.position - b.position);
+  const lines: string[] = [];
+  for (const r of roots) {
+    lines.push(
+      `- [${r.kind}] id=${r.id} | ${r.title} (${r.status})${r.summary ? ` — ${r.summary}` : ""}`
+    );
+    const kids = nodes
+      .filter((n) => n.parentId === r.id)
+      .sort((a, b) => a.position - b.position);
+    for (const k of kids) {
+      lines.push(
+        `  - [${k.kind}] id=${k.id} | ${k.title} (${k.status}, ${k.wordCount}p)${k.summary ? ` — ${k.summary}` : ""}`
+      );
+    }
+  }
+  return lines.join("\n") || "(sin outline aún)";
+}

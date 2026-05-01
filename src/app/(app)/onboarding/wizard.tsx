@@ -42,10 +42,117 @@ const TONES: { id: Tone; label: string; desc: string }[] = [
   },
 ];
 
+const BOOK_KINDS: { id: string; label: string; desc: string }[] = [
+  {
+    id: "novela",
+    label: "Novela",
+    desc: "Una historia inventada con personajes, tramas y escenas. Cuenta lo que pasa.",
+  },
+  {
+    id: "memoria",
+    label: "Memoria / Autobiografía",
+    desc: "Tu historia real, contada en primera persona. Lo que viviste y aprendiste.",
+  },
+  {
+    id: "ensayo",
+    label: "Ensayo",
+    desc: "Una idea que defiendes con argumentos, ejemplos y reflexión. Como un artículo largo.",
+  },
+  {
+    id: "no-ficcion",
+    label: "No-ficción narrativa",
+    desc: "Historias reales escritas como novela. Periodismo, biografías, historias de empresa.",
+  },
+  {
+    id: "auto-ayuda",
+    label: "Auto-ayuda / Desarrollo personal",
+    desc: "Enseñas un cambio personal: hábitos, mentalidad, productividad, relaciones.",
+  },
+  {
+    id: "manual",
+    label: "Manual práctico / How-to",
+    desc: "Pasos concretos para lograr algo. Recetas, guías, procedimientos.",
+  },
+  {
+    id: "tecnico",
+    label: "Técnico / Profesional",
+    desc: "Conocimiento experto de un área: programación, medicina, finanzas, derecho.",
+  },
+  {
+    id: "negocios",
+    label: "Negocios / Liderazgo",
+    desc: "Estrategia, marketing, ventas, gestión, casos de empresas.",
+  },
+  {
+    id: "academico",
+    label: "Académico / Investigación",
+    desc: "Citado, riguroso, con metodología. Tesis, papers, libros universitarios.",
+  },
+  {
+    id: "infantil",
+    label: "Infantil / Juvenil",
+    desc: "Lenguaje simple, ilustraciones imaginadas, edad objetivo.",
+  },
+  {
+    id: "poesia",
+    label: "Poesía",
+    desc: "Compilación de poemas, lenguaje cuidado, ritmo y forma importan.",
+  },
+  {
+    id: "cuentos",
+    label: "Cuentos cortos",
+    desc: "Colección de historias breves independientes.",
+  },
+];
+
+const COURSE_KINDS: { id: string; label: string; desc: string }[] = [
+  {
+    id: "bootcamp",
+    label: "Bootcamp intensivo",
+    desc: "Curso largo y profundo. El alumno termina dominando una habilidad nueva.",
+  },
+  {
+    id: "taller-practico",
+    label: "Taller práctico",
+    desc: "Hands-on. El alumno construye algo concreto siguiendo los pasos.",
+  },
+  {
+    id: "masterclass",
+    label: "Masterclass / Lección magistral",
+    desc: "Una clase magistral por experto. Densa, sin tarea, para aprender una idea grande.",
+  },
+  {
+    id: "fundamentos",
+    label: "Curso de fundamentos",
+    desc: "Lo básico de un tema desde cero. Conceptos, vocabulario, primeros pasos.",
+  },
+  {
+    id: "certificacion",
+    label: "Curso de certificación",
+    desc: "Termina en un examen o credencial. Cubre un syllabus oficial.",
+  },
+  {
+    id: "transformacion",
+    label: "Programa de transformación",
+    desc: "Mezcla mentoría, ejercicios y coaching. Cambio personal o profesional.",
+  },
+  {
+    id: "tecnico",
+    label: "Curso técnico",
+    desc: "Programación, herramientas, software, hardware. Con ejemplos de código.",
+  },
+  {
+    id: "creativo",
+    label: "Curso creativo",
+    desc: "Escritura, diseño, fotografía, música. Centrado en producir obra.",
+  },
+];
+
 export function OnboardingWizard() {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [type, setType] = useState<ProjectType | null>(null);
+  const [kindDetail, setKindDetail] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [audience, setAudience] = useState("");
@@ -59,7 +166,7 @@ export function OnboardingWizard() {
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
-  const totalSteps = 5;
+  const totalSteps = 6;
   const progress = ((step + 1) / totalSteps) * 100;
 
   async function handleCreateAndContinue() {
@@ -68,6 +175,7 @@ export function OnboardingWizard() {
       try {
         const { id } = await createProject({
           type,
+          kindDetail: kindDetail ?? undefined,
           title: title.trim(),
           description: description.trim() || undefined,
           audience: audience.trim() || undefined,
@@ -75,7 +183,7 @@ export function OnboardingWizard() {
           goal: goal.trim() || undefined,
         });
         setProjectId(id);
-        setStep(3);
+        setStep(4);
       } catch (e) {
         console.error(e);
       }
@@ -154,14 +262,20 @@ export function OnboardingWizard() {
               title="Un libro"
               desc="Capítulos, secciones, glosario"
               selected={type === "book"}
-              onClick={() => setType("book")}
+              onClick={() => {
+                setType("book");
+                setKindDetail(null);
+              }}
             />
             <TypeCard
               icon={<GraduationCapIcon className="h-6 w-6" />}
               title="Un curso"
               desc="Módulos, lecciones, guiones para teleprompter"
               selected={type === "course"}
-              onClick={() => setType("course")}
+              onClick={() => {
+                setType("course");
+                setKindDetail(null);
+              }}
             />
           </div>
           <Footer
@@ -172,6 +286,42 @@ export function OnboardingWizard() {
       )}
 
       {step === 1 && (
+        <div className="animate-fade-in">
+          <h1 className="text-3xl font-semibold tracking-tight">
+            ¿Qué tipo de {type === "book" ? "libro" : "curso"}?
+          </h1>
+          <p className="text-[var(--color-fg-muted)] mt-2">
+            Cada formato tiene su estructura. Esto guía cómo la IA arma tu
+            outline.
+          </p>
+          <div className="grid sm:grid-cols-2 gap-3 mt-6">
+            {(type === "book" ? BOOK_KINDS : COURSE_KINDS).map((k) => (
+              <button
+                key={k.id}
+                type="button"
+                onClick={() => setKindDetail(k.id)}
+                className={`text-left rounded-[var(--radius-md)] border p-3 transition-all ${
+                  kindDetail === k.id
+                    ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
+                    : "border-[var(--color-border)] hover:border-[var(--color-border-strong)]"
+                }`}
+              >
+                <div className="font-medium text-sm">{k.label}</div>
+                <div className="text-xs text-[var(--color-fg-muted)] mt-0.5 leading-relaxed">
+                  {k.desc}
+                </div>
+              </button>
+            ))}
+          </div>
+          <Footer
+            onPrev={() => setStep(0)}
+            onNext={() => setStep(2)}
+            nextDisabled={!kindDetail}
+          />
+        </div>
+      )}
+
+      {step === 2 && (
         <div className="animate-fade-in">
           <h1 className="text-3xl font-semibold tracking-tight">
             Cuéntame de tu {type === "book" ? "libro" : "curso"}
@@ -212,14 +362,14 @@ export function OnboardingWizard() {
             </div>
           </div>
           <Footer
-            onPrev={() => setStep(0)}
-            onNext={() => setStep(2)}
+            onPrev={() => setStep(1)}
+            onNext={() => setStep(3)}
             nextDisabled={!title.trim()}
           />
         </div>
       )}
 
-      {step === 2 && (
+      {step === 3 && (
         <div className="animate-fade-in">
           <h1 className="text-3xl font-semibold tracking-tight">
             ¿Para quién y con qué tono?
@@ -260,14 +410,14 @@ export function OnboardingWizard() {
             </div>
           </div>
           <Footer
-            onPrev={() => setStep(1)}
+            onPrev={() => setStep(2)}
             onNext={handleCreateAndContinue}
             nextLabel="Continuar"
           />
         </div>
       )}
 
-      {step === 3 && (
+      {step === 4 && (
         <div className="animate-fade-in">
           <h1 className="text-3xl font-semibold tracking-tight">
             Knowledge base inicial
@@ -317,14 +467,14 @@ export function OnboardingWizard() {
             </div>
           </div>
           <Footer
-            onPrev={() => setStep(2)}
-            onNext={() => setStep(4)}
+            onPrev={() => setStep(3)}
+            onNext={() => setStep(5)}
             nextLabel={uploads.length ? "Continuar" : "Saltar"}
           />
         </div>
       )}
 
-      {step === 4 && (
+      {step === 5 && (
         <div className="animate-fade-in">
           <div className="text-center max-w-xl mx-auto">
             <div className="h-14 w-14 rounded-full bg-[var(--color-accent-soft)] grid place-items-center text-[var(--color-accent)] mx-auto mb-5">
@@ -342,6 +492,14 @@ export function OnboardingWizard() {
                 <span className="text-[var(--color-fg-subtle)]">Título:</span>{" "}
                 <strong>{title}</strong>
               </div>
+              {kindDetail && (
+                <div>
+                  <span className="text-[var(--color-fg-subtle)]">Tipo:</span>{" "}
+                  {(type === "book" ? BOOK_KINDS : COURSE_KINDS).find(
+                    (k) => k.id === kindDetail
+                  )?.label}
+                </div>
+              )}
               {audience && (
                 <div>
                   <span className="text-[var(--color-fg-subtle)]">Audiencia:</span>{" "}
@@ -366,7 +524,7 @@ export function OnboardingWizard() {
             <div className="mt-6 flex items-center justify-center gap-3">
               <Button
                 variant="outline"
-                onClick={() => setStep(3)}
+                onClick={() => setStep(4)}
                 disabled={generating}
               >
                 <ArrowLeftIcon className="h-4 w-4" /> Atrás

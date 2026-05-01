@@ -21,8 +21,9 @@ sqlite.pragma("foreign_keys = ON");
 
 if (!globalForDb.sqlite) {
   globalForDb.sqlite = sqlite;
-  initSchema(sqlite);
 }
+// Run schema init on every cold start so column-add migrations apply to existing DBs.
+initSchema(sqlite);
 
 function initSchema(db: Database.Database) {
   db.exec(`
@@ -43,6 +44,7 @@ function initSchema(db: Database.Database) {
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       type TEXT NOT NULL,
+      kind_detail TEXT,
       title TEXT NOT NULL,
       subtitle TEXT,
       description TEXT,
@@ -50,6 +52,11 @@ function initSchema(db: Database.Database) {
       tone TEXT,
       goal TEXT,
       language TEXT NOT NULL DEFAULT 'es',
+      perspective TEXT,
+      formality TEXT,
+      style_notes TEXT,
+      glossary TEXT,
+      avoid_terms TEXT,
       status TEXT NOT NULL DEFAULT 'active',
       outline_generated INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
@@ -103,6 +110,23 @@ function initSchema(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS writing_days_user_day ON writing_days(user_id, day);
   `);
+
+  // Idempotent column adds for existing DBs created before these fields existed.
+  const migrations: Array<{ table: string; column: string; ddl: string }> = [
+    { table: "projects", column: "kind_detail", ddl: "TEXT" },
+    { table: "projects", column: "perspective", ddl: "TEXT" },
+    { table: "projects", column: "formality", ddl: "TEXT" },
+    { table: "projects", column: "style_notes", ddl: "TEXT" },
+    { table: "projects", column: "glossary", ddl: "TEXT" },
+    { table: "projects", column: "avoid_terms", ddl: "TEXT" },
+  ];
+  for (const m of migrations) {
+    try {
+      db.exec(`ALTER TABLE ${m.table} ADD COLUMN ${m.column} ${m.ddl}`);
+    } catch {
+      // Column already exists, ignore.
+    }
+  }
 }
 
 export const db = drizzle(sqlite, { schema });

@@ -25,6 +25,7 @@ export const projects = sqliteTable("projects", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   type: text("type", { enum: ["book", "course"] }).notNull(),
+  kindDetail: text("kind_detail"),
   title: text("title").notNull(),
   subtitle: text("subtitle"),
   description: text("description"),
@@ -32,6 +33,11 @@ export const projects = sqliteTable("projects", {
   tone: text("tone"),
   goal: text("goal"),
   language: text("language").default("es").notNull(),
+  perspective: text("perspective"),
+  formality: text("formality"),
+  styleNotes: text("style_notes"),
+  glossary: text("glossary"),
+  avoidTerms: text("avoid_terms"),
   status: text("status", { enum: ["draft", "active", "archived"] })
     .default("active")
     .notNull(),
