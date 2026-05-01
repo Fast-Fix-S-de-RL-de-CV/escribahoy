@@ -18,6 +18,18 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+function htmlToText(html: string | null | undefined): string {
+  if (!html) return "";
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user)
@@ -41,16 +53,9 @@ export async function POST(req: NextRequest) {
   const node = nodeRows[0].outline_nodes;
   const project = nodeRows[0].projects;
 
-  // Solo aplica a secciones/lecciones (hojas).
   if (node.kind !== "section" && node.kind !== "lesson") {
     return NextResponse.json(
       { error: "solo aplica a secciones o lecciones" },
-      { status: 400 }
-    );
-  }
-  if ((node.wordCount ?? 0) > 0) {
-    return NextResponse.json(
-      { error: "la sección ya tiene contenido" },
       { status: 400 }
     );
   }
@@ -63,9 +68,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Si ya hay alguna sugerencia para este nodo (pending/applied/dismissed),
-  // NO generamos otra automáticamente — el usuario ya tomó decisión sobre
-  // ese nodo. Solo devolvemos lo que existe.
+  // Si ya hay alguna sugerencia para este nodo, no generamos otra.
   const existing = await db
     .select()
     .from(suggestions)
@@ -79,7 +82,8 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // Contexto del capítulo padre + sus secciones hermanas para entender flujo.
+  // === CONTEXTO COMPLETO ===
+
   const allNodes = await db
     .select()
     .from(outlineNodes)
@@ -101,7 +105,7 @@ export async function POST(req: NextRequest) {
       ? siblings[myIndex + 1]
       : null;
 
-  // Outline compacto del libro.
+  // Outline compacto del libro completo.
   const roots = allNodes
     .filter((n) => !n.parentId && (n.kind === "chapter" || n.kind === "module"))
     .sort((a, b) => a.position - b.position);
@@ -114,11 +118,16 @@ export async function POST(req: NextRequest) {
       .sort((a, b) => a.position - b.position);
     kids.forEach((k, j) => {
       const isMe = k.id === node.id ? " ← (esta sección)" : "";
-      outlineLines.push(`   ${num}.${j + 1} ${k.title}${isMe}`);
+      const summary = k.summary ? ` — ${k.summary}` : "";
+      const wc =
+        k.wordCount > 0 ? ` [${k.wordCount} palabras escritas]` : "";
+      outlineLines.push(
+        `   ${num}.${j + 1} ${k.title}${summary}${wc}${isMe}`
+      );
     });
   });
 
-  // KB resumido.
+  // Knowledge base completo (más texto, no solo summary).
   const kbRows = await db
     .select()
     .from(knowledgeFiles)
@@ -127,71 +136,161 @@ export async function POST(req: NextRequest) {
     ? kbRows
         .map(
           (k) =>
-            `[KB:${k.name}]\n${k.summary ?? k.extractedText.slice(0, 1200)}`
+            `[KB · ${k.name}]\n${k.extractedText.slice(0, 6000)}${k.extractedText.length > 6000 ? "\n[...truncado...]" : ""}`
         )
-        .join("\n\n")
-        .slice(0, 8000)
+        .join("\n\n---\n\n")
+        .slice(0, 30000)
     : "";
+
+  // Apertura del capítulo padre (si tiene contenido).
+  const parentOpening = parent
+    ? htmlToText(parent.content).slice(0, 3000)
+    : "";
+  const parentClosing = parent
+    ? htmlToText(parent.closingContent).slice(0, 1500)
+    : "";
+
+  // Contenido COMPLETO de las secciones hermanas que ya están escritas (no solo summary).
+  const siblingsWithContent = siblings
+    .filter((s) => s.id !== node.id && (s.wordCount ?? 0) > 0)
+    .map((s) => {
+      const text = htmlToText(s.content);
+      const truncated = text.slice(0, 2500);
+      return `── ${s.title} (${s.wordCount} palabras)${s.summary ? ` — ${s.summary}` : ""}\n${truncated}${text.length > 2500 ? "\n[...truncado...]" : ""}`;
+    })
+    .join("\n\n")
+    .slice(0, 20000);
+
+  // Contenido actual de la propia sección (si existe).
+  const myCurrentContent = htmlToText(node.content);
+  const hasExistingContent = myCurrentContent.length > 30;
 
   const fmt = getFormat(project.format);
   const targetWords = node.targetWords || (project.type === "book" ? 800 : 400);
 
   const system = `${SYSTEM_BASE}
 
-Proyecto:
+═══════════════════════════════════════════════════
+PROYECTO COMPLETO
+═══════════════════════════════════════════════════
 - Tipo: ${project.type === "book" ? "libro" : "curso"}${project.kindDetail ? ` (${project.kindDetail})` : ""}
 - Título: ${project.title}
+${project.subtitle ? `- Subtítulo: ${project.subtitle}` : ""}
+${project.description ? `- Descripción: ${project.description}` : ""}
 ${project.audience ? `- Audiencia: ${project.audience}` : ""}
 ${project.tone ? `- Tono: ${project.tone}` : ""}
-${project.perspective ? `- Persona: ${project.perspective}` : ""}
+${project.perspective ? `- Persona narrativa: ${project.perspective}` : ""}
 ${project.formality ? `- Formalidad: ${project.formality}` : ""}
 ${project.styleNotes ? `- Notas de estilo: ${project.styleNotes}` : ""}
-${project.glossary ? `- Glosario obligatorio: ${project.glossary}` : ""}
-${project.avoidTerms ? `- Términos a evitar: ${project.avoidTerms}` : ""}
-${fmt ? `- Formato: ${fmt.label}` : ""}
+${project.glossary ? `- GLOSARIO OBLIGATORIO (respeta estos términos exactos):\n${project.glossary}` : ""}
+${project.avoidTerms ? `- TÉRMINOS A EVITAR (NO los uses):\n${project.avoidTerms}` : ""}
+${fmt ? `- Formato físico: ${fmt.label} (${fmt.widthCm}×${fmt.heightCm}cm), ${project.targetPages} páginas objetivo` : ""}
 
-Outline completo del libro (la sección actual está marcada):
+═══════════════════════════════════════════════════
+ESTRUCTURA COMPLETA DEL LIBRO
+═══════════════════════════════════════════════════
 ${outlineLines.join("\n")}
 
-${parent ? `Capítulo padre: "${parent.title}"${parent.summary ? ` — ${parent.summary}` : ""}` : ""}
-${previousSibling ? `Sección anterior: "${previousSibling.title}"${previousSibling.summary ? ` — ${previousSibling.summary}` : ""}` : "(es la primera sección del capítulo)"}
-${nextSibling ? `Próxima sección: "${nextSibling.title}"${nextSibling.summary ? ` — ${nextSibling.summary}` : ""}` : "(es la última sección del capítulo)"}
+═══════════════════════════════════════════════════
+CAPÍTULO PADRE: "${parent?.title ?? "(sin padre)"}"
+═══════════════════════════════════════════════════
+${parent?.summary ? `Resumen: ${parent.summary}\n` : ""}${
+    parentOpening
+      ? `APERTURA del capítulo (lo que el lector lee antes de esta sección):\n${parentOpening}\n`
+      : "(El capítulo aún no tiene apertura escrita.)\n"
+  }${
+    parentClosing
+      ? `\nCIERRE del capítulo (lo que viene después de las secciones):\n${parentClosing}`
+      : ""
+  }
 
-Sección actual a sugerir contenido:
+═══════════════════════════════════════════════════
+SECCIÓN ANTERIOR
+═══════════════════════════════════════════════════
+${
+  previousSibling
+    ? `"${previousSibling.title}"${previousSibling.summary ? ` — ${previousSibling.summary}` : ""} (${previousSibling.wordCount} palabras escritas)`
+    : "(es la primera sección del capítulo)"
+}
+
+═══════════════════════════════════════════════════
+PRÓXIMA SECCIÓN
+═══════════════════════════════════════════════════
+${
+  nextSibling
+    ? `"${nextSibling.title}"${nextSibling.summary ? ` — ${nextSibling.summary}` : ""} (${nextSibling.wordCount} palabras escritas)`
+    : "(es la última sección del capítulo)"
+}
+
+═══════════════════════════════════════════════════
+CONTENIDO YA ESCRITO EN OTRAS SECCIONES DEL MISMO CAPÍTULO
+(NO repitas estos contenidos en la sugerencia)
+═══════════════════════════════════════════════════
+${siblingsWithContent || "(ninguna otra sección de este capítulo tiene contenido escrito todavía)"}
+
+${
+  kbContext
+    ? `═══════════════════════════════════════════════════
+KNOWLEDGE BASE DEL PROYECTO (PDFs/notas que el autor subió)
+═══════════════════════════════════════════════════
+${kbContext}`
+    : ""
+}
+
+═══════════════════════════════════════════════════
+SECCIÓN ACTUAL A SUGERIR
+═══════════════════════════════════════════════════
 - Título: "${node.title}"
 - ${node.summary ? `Resumen previsto: ${node.summary}` : "Sin resumen previo"}
 - Extensión objetivo: ~${targetWords} palabras
-- Estado: vacía (no tiene contenido escrito aún)
+- Estado actual: ${hasExistingContent ? `tiene ${node.wordCount} palabras YA ESCRITAS` : "vacía (sin contenido aún)"}
+${
+  hasExistingContent
+    ? `\nCONTENIDO ACTUAL ESCRITO POR EL AUTOR (respétalo, NO lo reemplaces):\n${myCurrentContent.slice(0, 4000)}${myCurrentContent.length > 4000 ? "\n[...]" : ""}`
+    : ""
+}
 
-${kbContext ? `Knowledge base del proyecto:\n${kbContext}` : ""}
-
-TAREA:
-Genera una SUGERENCIA estructural específica para que el autor sepa qué cubrir en esta sección. NO escribas el contenido de la sección — solo dale al autor un plan claro y accionable.
+═══════════════════════════════════════════════════
+TAREA
+═══════════════════════════════════════════════════
+${
+  hasExistingContent
+    ? `El autor YA empezó a escribir esta sección. Genera una sugerencia que:
+- Reconozca qué ya tiene escrito y construya sobre eso (NO le pidas reescribir).
+- Sugiera qué FALTA cubrir para completar la sección de forma coherente.
+- Identifique posibles brechas, conexiones no hechas con otras secciones, ejemplos que faltan, transiciones débiles.
+- Si el contenido actual contradice algo del resto del libro, márcalo claramente.`
+    : `El autor está abriendo esta sección por primera vez. Genera un plan estructural específico para que sepa qué cubrir.`
+}
 
 REGLAS DE LA SUGERENCIA:
 - 100-300 palabras.
-- Estructura clara: numera los puntos o usa bullets para que el autor pueda seguir el plan.
-- Específica al tema de esta sección, NO genérica.
-- Considera el flujo: qué se cubrió en la sección anterior, qué viene después, para no repetir ni dejar huecos.
-- Si hay knowledge base, identifica fragmentos específicos que aplican aquí.
-- Si el glosario tiene términos relevantes, mencionalos.
-- Sugiere ejemplos, ganchos o casos prácticos cuando aplique.
+- Estructura clara: bullets o numeración.
+- ESPECÍFICA al tema de esta sección, no genérica.
+- Considera el FLUJO: qué viene de la sección anterior, qué se entrega a la próxima.
+- Si el knowledge base contiene material relevante para esta sección específicamente, IDENTIFÍCALO con cita corta y úsalo en la sugerencia (ej. "según [KB:nombre del archivo]: ...").
+- Respeta el GLOSARIO obligatorio (usa esos términos exactos).
+- NUNCA uses los términos prohibidos.
+- NO repitas lo que ya está cubierto en otras secciones del mismo capítulo (mostradas arriba).
+- Si hay conexiones obvias con otros capítulos del outline, menciónalas como "ver cap. X.Y".
 - Termina con una nota corta del tono/voz que debe tener (1 frase).
 
 EVITA:
 - Frases genéricas tipo "explicar el concepto" o "dar ejemplos".
-- Repetir lo que ya está en otras secciones del outline.
-- Inventar datos o estadísticas.
+- Inventar datos o estadísticas que no están en el KB ni son verificables.
+- Repetir el outline.
 
-DEVUELVE ÚNICAMENTE el texto de la sugerencia (markdown OK). Sin preámbulos como "Aquí está mi sugerencia:". Empieza directo con el plan.`;
+DEVUELVE ÚNICAMENTE el texto de la sugerencia (markdown OK). Sin preámbulos. Empieza directo con el plan o la observación.`;
 
-  const userMessage = `Genera la sugerencia estructural para "${node.title}".`;
+  const userMessage = hasExistingContent
+    ? `El autor ya empezó a escribir "${node.title}". Genera la sugerencia para ayudarle a completarla coherentemente con todo el libro.`
+    : `Genera la sugerencia estructural para "${node.title}".`;
 
   try {
     const anthropic = getAnthropic();
     const response = await anthropic.messages.create({
       model: MODEL,
-      max_tokens: 1024,
+      max_tokens: 1500,
       system,
       messages: [{ role: "user", content: userMessage }],
     });
@@ -223,7 +322,7 @@ DEVUELVE ÚNICAMENTE el texto de la sugerencia (markdown OK). Sin preámbulos co
       actor: "ai",
       kind: "leave_suggestion",
       nodeId: node.id,
-      description: `Generó sugerencia automática al abrir "${node.title}"`,
+      description: `Generó sugerencia automática al abrir "${node.title}"${hasExistingContent ? " (con contenido existente)" : ""}`,
     });
 
     const created = await db
@@ -235,6 +334,7 @@ DEVUELVE ÚNICAMENTE el texto de la sugerencia (markdown OK). Sin preámbulos co
     return NextResponse.json({
       ok: true,
       suggestion: created[0],
+      hadExistingContent: hasExistingContent,
     });
   } catch (err) {
     return NextResponse.json(

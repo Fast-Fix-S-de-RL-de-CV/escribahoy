@@ -1034,8 +1034,7 @@ function SectionEditor({
           projectId={project.id}
           nodeId={node.id}
           autoSuggest={
-            (node.kind === "section" || node.kind === "lesson") &&
-            (node.wordCount ?? 0) === 0
+            node.kind === "section" || node.kind === "lesson"
           }
           suggestions={suggestions.filter((s) => s.nodeId === node.id)}
           onApplied={(id) => {
