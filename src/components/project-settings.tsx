@@ -15,33 +15,8 @@ import {
   updateProject,
   generateOutlineForProject,
 } from "@/lib/actions/project";
+import { BOOK_KINDS, COURSE_KINDS } from "@/lib/project-kinds";
 import type { Project } from "@/lib/schema";
-
-const BOOK_KINDS = [
-  { id: "novela", label: "Novela" },
-  { id: "memoria", label: "Memoria / Autobiografía" },
-  { id: "ensayo", label: "Ensayo" },
-  { id: "no-ficcion", label: "No-ficción narrativa" },
-  { id: "auto-ayuda", label: "Auto-ayuda / Desarrollo personal" },
-  { id: "manual", label: "Manual práctico / How-to" },
-  { id: "tecnico", label: "Técnico / Profesional" },
-  { id: "negocios", label: "Negocios / Liderazgo" },
-  { id: "academico", label: "Académico / Investigación" },
-  { id: "infantil", label: "Infantil / Juvenil" },
-  { id: "poesia", label: "Poesía" },
-  { id: "cuentos", label: "Cuentos cortos" },
-];
-
-const COURSE_KINDS = [
-  { id: "bootcamp", label: "Bootcamp intensivo" },
-  { id: "taller-practico", label: "Taller práctico" },
-  { id: "masterclass", label: "Masterclass" },
-  { id: "fundamentos", label: "Curso de fundamentos" },
-  { id: "certificacion", label: "Curso de certificación" },
-  { id: "transformacion", label: "Programa de transformación" },
-  { id: "tecnico", label: "Curso técnico" },
-  { id: "creativo", label: "Curso creativo" },
-];
 
 const TONES = ["directo", "narrativo", "academico", "conversacional"];
 const PERSPECTIVES = [
@@ -209,23 +184,50 @@ export function ProjectSettings({
 
           <Section
             title={`Tipo de ${isBook ? "libro" : "curso"}`}
-            help="Cambiar este valor afecta cómo la IA propone el outline."
+            help="Pasa el cursor sobre cada opción para ver la descripción y autores famosos del género."
           >
-            <div className="grid grid-cols-2 gap-2">
-              {KINDS.map((k) => (
-                <button
-                  key={k.id}
-                  type="button"
-                  onClick={() => update("kindDetail", k.id)}
-                  className={`text-left rounded-md border px-3 py-2 text-xs transition-all ${
-                    form.kindDetail === k.id
-                      ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)] text-[var(--color-accent)] font-medium"
-                      : "border-[var(--color-border)] hover:border-[var(--color-border-strong)]"
-                  }`}
-                >
-                  {k.label}
-                </button>
-              ))}
+            <div className="space-y-2">
+              {KINDS.map((k) => {
+                const selected = form.kindDetail === k.id;
+                return (
+                  <button
+                    key={k.id}
+                    type="button"
+                    onClick={() => update("kindDetail", k.id)}
+                    title={`${k.desc}\n\n${k.examples}`}
+                    className={`w-full text-left rounded-md border p-3 transition-all ${
+                      selected
+                        ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
+                        : "border-[var(--color-border)] hover:border-[var(--color-border-strong)]"
+                    }`}
+                  >
+                    <div
+                      className={`text-sm font-medium flex items-center gap-2 ${
+                        selected ? "text-[var(--color-accent)]" : ""
+                      }`}
+                    >
+                      {selected && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-accent)] flex-shrink-0" />
+                      )}
+                      {k.label}
+                    </div>
+                    {selected ? (
+                      <>
+                        <div className="text-xs text-[var(--color-fg-muted)] mt-1 leading-relaxed">
+                          {k.desc}
+                        </div>
+                        <div className="text-[11px] text-[var(--color-fg-subtle)] mt-1 italic">
+                          {k.examples}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-xs text-[var(--color-fg-subtle)] mt-1 line-clamp-1">
+                        {k.examples}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
             </div>
             {form.kindDetail !== (project.kindDetail ?? "") && (
               <p className="text-xs text-[var(--color-warning)] mt-2 flex items-start gap-1.5">

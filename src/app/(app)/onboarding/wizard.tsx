@@ -20,6 +20,7 @@ import {
   createProject,
   generateOutlineForProject,
 } from "@/lib/actions/project";
+import { BOOK_KINDS, COURSE_KINDS } from "@/lib/project-kinds";
 
 type ProjectType = "book" | "course";
 type Tone = "directo" | "narrativo" | "academico" | "conversacional";
@@ -39,112 +40,6 @@ const TONES: { id: Tone; label: string; desc: string }[] = [
     id: "conversacional",
     label: "Conversacional",
     desc: "Como charla con el lector",
-  },
-];
-
-const BOOK_KINDS: { id: string; label: string; desc: string }[] = [
-  {
-    id: "novela",
-    label: "Novela",
-    desc: "Una historia inventada con personajes, tramas y escenas. Cuenta lo que pasa.",
-  },
-  {
-    id: "memoria",
-    label: "Memoria / Autobiografía",
-    desc: "Tu historia real, contada en primera persona. Lo que viviste y aprendiste.",
-  },
-  {
-    id: "ensayo",
-    label: "Ensayo",
-    desc: "Una idea que defiendes con argumentos, ejemplos y reflexión. Como un artículo largo.",
-  },
-  {
-    id: "no-ficcion",
-    label: "No-ficción narrativa",
-    desc: "Historias reales escritas como novela. Periodismo, biografías, historias de empresa.",
-  },
-  {
-    id: "auto-ayuda",
-    label: "Auto-ayuda / Desarrollo personal",
-    desc: "Enseñas un cambio personal: hábitos, mentalidad, productividad, relaciones.",
-  },
-  {
-    id: "manual",
-    label: "Manual práctico / How-to",
-    desc: "Pasos concretos para lograr algo. Recetas, guías, procedimientos.",
-  },
-  {
-    id: "tecnico",
-    label: "Técnico / Profesional",
-    desc: "Conocimiento experto de un área: programación, medicina, finanzas, derecho.",
-  },
-  {
-    id: "negocios",
-    label: "Negocios / Liderazgo",
-    desc: "Estrategia, marketing, ventas, gestión, casos de empresas.",
-  },
-  {
-    id: "academico",
-    label: "Académico / Investigación",
-    desc: "Citado, riguroso, con metodología. Tesis, papers, libros universitarios.",
-  },
-  {
-    id: "infantil",
-    label: "Infantil / Juvenil",
-    desc: "Lenguaje simple, ilustraciones imaginadas, edad objetivo.",
-  },
-  {
-    id: "poesia",
-    label: "Poesía",
-    desc: "Compilación de poemas, lenguaje cuidado, ritmo y forma importan.",
-  },
-  {
-    id: "cuentos",
-    label: "Cuentos cortos",
-    desc: "Colección de historias breves independientes.",
-  },
-];
-
-const COURSE_KINDS: { id: string; label: string; desc: string }[] = [
-  {
-    id: "bootcamp",
-    label: "Bootcamp intensivo",
-    desc: "Curso largo y profundo. El alumno termina dominando una habilidad nueva.",
-  },
-  {
-    id: "taller-practico",
-    label: "Taller práctico",
-    desc: "Hands-on. El alumno construye algo concreto siguiendo los pasos.",
-  },
-  {
-    id: "masterclass",
-    label: "Masterclass / Lección magistral",
-    desc: "Una clase magistral por experto. Densa, sin tarea, para aprender una idea grande.",
-  },
-  {
-    id: "fundamentos",
-    label: "Curso de fundamentos",
-    desc: "Lo básico de un tema desde cero. Conceptos, vocabulario, primeros pasos.",
-  },
-  {
-    id: "certificacion",
-    label: "Curso de certificación",
-    desc: "Termina en un examen o credencial. Cubre un syllabus oficial.",
-  },
-  {
-    id: "transformacion",
-    label: "Programa de transformación",
-    desc: "Mezcla mentoría, ejercicios y coaching. Cambio personal o profesional.",
-  },
-  {
-    id: "tecnico",
-    label: "Curso técnico",
-    desc: "Programación, herramientas, software, hardware. Con ejemplos de código.",
-  },
-  {
-    id: "creativo",
-    label: "Curso creativo",
-    desc: "Escritura, diseño, fotografía, música. Centrado en producir obra.",
   },
 ];
 
@@ -307,8 +202,11 @@ export function OnboardingWizard() {
                 }`}
               >
                 <div className="font-medium text-sm">{k.label}</div>
-                <div className="text-xs text-[var(--color-fg-muted)] mt-0.5 leading-relaxed">
+                <div className="text-xs text-[var(--color-fg-muted)] mt-1 leading-relaxed">
                   {k.desc}
+                </div>
+                <div className="text-[11px] text-[var(--color-fg-subtle)] mt-1.5 italic leading-snug">
+                  {k.examples}
                 </div>
               </button>
             ))}
