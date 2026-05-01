@@ -227,6 +227,7 @@ export function ProjectWorkspace({
               position: 999,
               status: "empty",
               content: "",
+              closingContent: "",
               scriptContent: "",
               wordCount: 0,
               targetWords: kind === "section" ? 800 : kind === "lesson" ? 400 : 0,
@@ -255,10 +256,12 @@ export function ProjectWorkspace({
         <SectionEditor
           project={project}
           node={activeNode}
+          allNodes={nodes}
           numbering={numbering}
           suggestions={suggestions}
           onUpdate={(patch) => activeNode && applyNodeUpdate(activeNode.id, patch)}
           onSuggestionsChange={setSuggestions}
+          onSelectNode={setActiveNodeId}
         />
         <AIPanel
           project={project}
@@ -746,33 +749,59 @@ const STATUS_COLORS: Record<string, string> = {
 function SectionEditor({
   project,
   node,
+  allNodes,
   numbering,
   suggestions,
   onUpdate,
   onSuggestionsChange,
+  onSelectNode,
 }: {
   project: Project;
   node: OutlineNode | null;
+  allNodes: OutlineNode[];
   numbering: Record<string, string | null>;
   suggestions: Suggestion[];
   onUpdate: (patch: Partial<OutlineNode>) => void;
   onSuggestionsChange: (next: Suggestion[]) => void;
+  onSelectNode: (id: string) => void;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closingSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [saving, setSaving] = useState(false);
   const [generatingScript, setGeneratingScript] = useState(false);
   const [redistributing, setRedistributing] = useState(false);
   const [redistributeError, setRedistributeError] = useState<string | null>(null);
+  const [showClosing, setShowClosing] = useState(false);
   const isLesson = node?.kind === "lesson";
   const isContainer = node?.kind === "chapter" || node?.kind === "module";
-  // Heurística: capítulo con > 300 palabras en su cuerpo es síntoma de un
-  // bug viejo donde apply-suggestion escribía todo en el capítulo en vez
-  // de distribuir en sus secciones. Mostramos el banner para rescatarlo.
+  // Tipos de libro donde el capítulo NO se divide en secciones (todo el
+  // contenido va en el cuerpo del cap.).
+  const NO_SECTIONS_KINDS = new Set(["novela", "cuentos", "poesia"]);
+  const chapterHasNoSections =
+    isContainer &&
+    project.type === "book" &&
+    !!project.kindDetail &&
+    NO_SECTIONS_KINDS.has(project.kindDetail);
+  // Vista "tipo libro" para capítulos con sub-secciones.
+  const isStructuredChapter = isContainer && !chapterHasNoSections;
+  const childSections = isStructuredChapter && node
+    ? allNodes
+        .filter((n) => n.parentId === node.id)
+        .sort((a, b) => a.position - b.position)
+    : [];
+  // Heurística: en un capítulo estructurado con secciones, > 300 palabras en
+  // el cuerpo del cap. es síntoma del bug viejo (todo el contenido se metió
+  // en el cap. en lugar de distribuirse en las secciones). En novela/cuentos
+  // esto NO aplica porque ahí sí va todo en el cuerpo.
   const needsRedistribute =
-    isContainer && node && node.wordCount > 300;
+    isStructuredChapter && node && node.wordCount > 300;
+
+  useEffect(() => {
+    setShowClosing(!!node?.closingContent && node.closingContent.trim().length > 0);
+  }, [node?.id, node?.closingContent]);
 
   async function redistributeChapter() {
     if (!node) return;
@@ -808,6 +837,27 @@ function SectionEditor({
             projectId: project.id,
             nodeId: node.id,
             content,
+          });
+          setSavedAt(new Date());
+        } finally {
+          setSaving(false);
+        }
+      });
+    }, 1000);
+  }
+
+  function scheduleSaveClosing(closing: string) {
+    if (!node) return;
+    onUpdate({ closingContent: closing });
+    if (closingSaveTimer.current) clearTimeout(closingSaveTimer.current);
+    closingSaveTimer.current = setTimeout(() => {
+      setSaving(true);
+      startTransition(async () => {
+        try {
+          await updateNode({
+            projectId: project.id,
+            nodeId: node.id,
+            closingContent: closing,
           });
           setSavedAt(new Date());
         } finally {
@@ -984,8 +1034,6 @@ function SectionEditor({
           projectId={project.id}
           suggestions={suggestions.filter((s) => s.nodeId === node.id)}
           onApplied={(id) => {
-            // Server already updated DB. router.refresh() en el SuggestionsBox
-            // re-cargará nodes y suggestions desde el servidor.
             onSuggestionsChange(
               suggestions.map((s) =>
                 s.id === id
@@ -1002,15 +1050,32 @@ function SectionEditor({
             );
           }}
         />
-        <RichEditor
-          key={node.id}
-          initialHtml={node.content}
-          placeholder={`Empieza a escribir tu ${
-            isLesson ? "lección" : "sección"
-          }... o pídele a Escribahoy que te dé un esqueleto.`}
-          onChange={scheduleSave}
-          aiContext={{ projectId: project.id, nodeId: node.id }}
-        />
+
+        {isStructuredChapter ? (
+          <ChapterStructuredView
+            project={project}
+            node={node}
+            childSections={childSections}
+            numbering={numbering}
+            showClosing={showClosing}
+            onSelectNode={onSelectNode}
+            onChangeOpening={scheduleSave}
+            onChangeClosing={scheduleSaveClosing}
+            onShowClosing={() => setShowClosing(true)}
+          />
+        ) : (
+          <RichEditor
+            key={node.id}
+            initialHtml={node.content}
+            placeholder={
+              chapterHasNoSections
+                ? `Empieza a escribir tu ${node.kind === "chapter" ? "capítulo" : "módulo"}...`
+                : `Empieza a escribir tu ${isLesson ? "lección" : "sección"}... o pídele a Escribahoy que te dé un esqueleto.`
+            }
+            onChange={scheduleSave}
+            aiContext={{ projectId: project.id, nodeId: node.id }}
+          />
+        )}
       </div>
       {isLesson && (
         <div className="border-t border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-8 py-4">
@@ -1048,6 +1113,175 @@ function SectionEditor({
         </div>
       )}
     </div>
+  );
+}
+
+function ChapterStructuredView({
+  project,
+  node,
+  childSections,
+  numbering,
+  showClosing,
+  onSelectNode,
+  onChangeOpening,
+  onChangeClosing,
+  onShowClosing,
+}: {
+  project: Project;
+  node: OutlineNode;
+  childSections: OutlineNode[];
+  numbering: Record<string, string | null>;
+  showClosing: boolean;
+  onSelectNode: (id: string) => void;
+  onChangeOpening: (html: string) => void;
+  onChangeClosing: (html: string) => void;
+  onShowClosing: () => void;
+}) {
+  const childKind = node.kind === "chapter" ? "section" : "lesson";
+  const totalChildWords = childSections.reduce(
+    (s, n) => s + (n.wordCount ?? 0),
+    0
+  );
+
+  return (
+    <div className="space-y-8">
+      <BookSection
+        label="Apertura del capítulo"
+        hint="1-3 párrafos para enmarcar el capítulo: un gancho, una historia, una pregunta o un dato. NO el contenido completo."
+      >
+        <RichEditor
+          key={`opening-${node.id}`}
+          initialHtml={node.content}
+          placeholder="Una idea provocadora que abra el capítulo. Por ejemplo: una historia personal, un dato impactante, una pregunta directa al lector..."
+          onChange={onChangeOpening}
+          aiContext={{ projectId: project.id, nodeId: node.id }}
+        />
+      </BookSection>
+
+      <BookSection
+        label={`${childKind === "section" ? "Secciones" : "Lecciones"} del capítulo`}
+        hint={`Aquí va el desarrollo principal. Cada ${childKind === "section" ? "sección" : "lección"} se edita por separado al hacer click.`}
+        right={
+          <span className="text-xs text-[var(--color-fg-muted)]">
+            {childSections.length} ·{" "}
+            {totalChildWords.toLocaleString("es-MX")} palabras
+          </span>
+        }
+      >
+        {childSections.length === 0 ? (
+          <div className="rounded-md border border-dashed border-[var(--color-border-strong)] p-6 text-center text-sm text-[var(--color-fg-muted)]">
+            Este capítulo aún no tiene{" "}
+            {childKind === "section" ? "secciones" : "lecciones"}. Pídele a la
+            IA que te genere un esqueleto, o agrégalas desde el sidebar.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {childSections.map((s) => {
+              const num = numbering[s.id] ?? "";
+              const status = s.status;
+              const dot =
+                status === "complete"
+                  ? "bg-[var(--color-success)]"
+                  : status === "in_progress"
+                    ? "bg-[var(--color-accent)]"
+                    : status === "draft"
+                      ? "bg-amber-400"
+                      : "bg-[var(--color-border-strong)]";
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => onSelectNode(s.id)}
+                  className="w-full text-left rounded-md border border-[var(--color-border)] bg-[var(--color-bg-elevated)] hover:border-[var(--color-accent)] hover:shadow-sm transition-all p-4 group"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 text-xs text-[var(--color-fg-subtle)] mb-1">
+                        <span className={cn("h-2 w-2 rounded-full", dot)} />
+                        <span className="font-mono font-semibold">
+                          {num}
+                        </span>
+                        <span>·</span>
+                        <span>{s.wordCount} palabras</span>
+                        {s.targetWords > 0 && (
+                          <span className="text-[var(--color-fg-subtle)]">
+                            / {s.targetWords}
+                          </span>
+                        )}
+                      </div>
+                      <div className="font-semibold text-base leading-tight group-hover:text-[var(--color-accent)]">
+                        {s.title}
+                      </div>
+                      {s.summary && (
+                        <p className="text-sm text-[var(--color-fg-muted)] mt-1 line-clamp-2">
+                          {s.summary}
+                        </p>
+                      )}
+                    </div>
+                    <ChevronRightIcon className="h-4 w-4 text-[var(--color-fg-subtle)] flex-shrink-0 mt-1 group-hover:text-[var(--color-accent)]" />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </BookSection>
+
+      {showClosing ? (
+        <BookSection
+          label="Cierre del capítulo"
+          hint="1-2 párrafos opcionales de síntesis. Resume los puntos clave o transiciona al próximo capítulo."
+        >
+          <RichEditor
+            key={`closing-${node.id}`}
+            initialHtml={node.closingContent ?? ""}
+            placeholder="Cierre del capítulo: síntesis y transición al próximo..."
+            onChange={onChangeClosing}
+            aiContext={{ projectId: project.id, nodeId: node.id }}
+          />
+        </BookSection>
+      ) : (
+        <button
+          type="button"
+          onClick={onShowClosing}
+          className="w-full rounded-md border border-dashed border-[var(--color-border-strong)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] px-4 py-3 text-sm text-[var(--color-fg-muted)] flex items-center justify-center gap-2"
+        >
+          <PlusIcon className="h-3.5 w-3.5" />
+          Agregar cierre del capítulo (opcional)
+        </button>
+      )}
+    </div>
+  );
+}
+
+function BookSection({
+  label,
+  hint,
+  right,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  right?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section>
+      <div className="flex items-center justify-between gap-3 pb-2 mb-3 border-b border-[var(--color-border)]">
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-accent)]">
+            {label}
+          </div>
+          {hint && (
+            <p className="text-xs text-[var(--color-fg-subtle)] mt-0.5 leading-relaxed">
+              {hint}
+            </p>
+          )}
+        </div>
+        {right}
+      </div>
+      {children}
+    </section>
   );
 }
 

@@ -79,6 +79,7 @@ export const outlineNodes = sqliteTable("outline_nodes", {
     .default("empty")
     .notNull(),
   content: text("content").default("").notNull(),
+  closingContent: text("closing_content").default("").notNull(),
   scriptContent: text("script_content").default("").notNull(),
   wordCount: integer("word_count").default(0).notNull(),
   targetWords: integer("target_words").default(0).notNull(),

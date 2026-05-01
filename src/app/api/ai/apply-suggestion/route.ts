@@ -256,7 +256,8 @@ REGLAS DE DISTRIBUCIÓN:
 
 DEVUELVE ÚNICAMENTE un JSON válido (sin markdown, sin texto antes/después):
 {
-  "chapterIntro": "<HTML corto de 1-2 párrafos para introducir el capítulo>",
+  "chapterIntro": "<HTML corto de 1-2 párrafos para APERTURA del capítulo (gancho/historia/dato que enmarca el tema)>",
+  "chapterClosing": "<HTML corto de 1-2 párrafos opcionales para CIERRE del capítulo (síntesis y transición al próximo). Solo si lo amerita la sugerencia, si no devuelve cadena vacía>",
   "sections": [
     {
       "action": "update_existing",
@@ -306,6 +307,7 @@ ${suggestion.content}`;
 
     let parsed: {
       chapterIntro?: string;
+      chapterClosing?: string;
       sections?: Array<{
         action: "create" | "update_existing";
         id?: string;
@@ -327,9 +329,15 @@ ${suggestion.content}`;
     let updatedCount = 0;
     let createdCount = 0;
 
-    // Update chapter intro (short).
+    // Update chapter intro (apertura) and closing (cierre).
     const introHtml = (parsed.chapterIntro ?? "").trim();
+    const closingHtml = (parsed.chapterClosing ?? "").trim();
     const introWc = introHtml
+      .replace(/<[^>]*>/g, " ")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean).length;
+    const closingWc = closingHtml
       .replace(/<[^>]*>/g, " ")
       .trim()
       .split(/\s+/)
@@ -338,6 +346,7 @@ ${suggestion.content}`;
       .update(outlineNodes)
       .set({
         content: introHtml,
+        closingContent: closingHtml,
         wordCount: introWc,
         status: introWc > 0 ? "draft" : "empty",
         updatedAt: new Date(),
@@ -401,13 +410,14 @@ ${suggestion.content}`;
       .where(eq(suggestions.id, suggestion.id));
 
     const summary = [
-      introWc > 0 ? `intro del capítulo (${introWc} palabras)` : null,
+      introWc > 0 ? `apertura (${introWc} palabras)` : null,
       updatedCount
         ? `${updatedCount} ${updatedCount === 1 ? "sección actualizada" : "secciones actualizadas"}`
         : null,
       createdCount
         ? `${createdCount} ${createdCount === 1 ? "nueva sección creada" : "nuevas secciones creadas"}`
         : null,
+      closingWc > 0 ? `cierre (${closingWc} palabras)` : null,
     ]
       .filter(Boolean)
       .join(" · ");

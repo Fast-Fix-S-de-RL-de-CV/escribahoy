@@ -469,6 +469,7 @@ const UpdateSectionSchema = z.object({
   projectId: z.string(),
   nodeId: z.string(),
   content: z.string().optional(),
+  closingContent: z.string().optional(),
   scriptContent: z.string().optional(),
   title: z.string().optional(),
   status: z.enum(["empty", "draft", "in_progress", "complete"]).optional(),
@@ -496,6 +497,8 @@ export async function updateNode(input: z.infer<typeof UpdateSectionSchema>) {
       updates.status = wc > 50 ? "in_progress" : wc > 0 ? "draft" : "empty";
     }
   }
+  if (parsed.closingContent !== undefined)
+    updates.closingContent = parsed.closingContent;
   if (parsed.scriptContent !== undefined)
     updates.scriptContent = parsed.scriptContent;
   if (parsed.title !== undefined) updates.title = parsed.title;

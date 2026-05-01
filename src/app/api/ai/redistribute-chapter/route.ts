@@ -134,7 +134,8 @@ Redistribuir el contenido anterior siguiendo estas REGLAS:
 
 DEVUELVE ÚNICAMENTE un JSON válido (sin markdown, sin texto antes/después):
 {
-  "chapterIntro": "<HTML corto de 1-2 párrafos>",
+  "chapterIntro": "<HTML corto de 1-2 párrafos para APERTURA del capítulo>",
+  "chapterClosing": "<HTML corto de 1-2 párrafos para CIERRE del capítulo. Solo si en el contenido original hay material que sirva como síntesis o cierre. Si no, devuelve cadena vacía>",
   "sections": [
     {
       "action": "update_existing",
@@ -182,6 +183,7 @@ REGLAS DE HTML:
 
     let parsed: {
       chapterIntro?: string;
+      chapterClosing?: string;
       sections?: Array<{
         action: "create" | "update_existing";
         id?: string;
@@ -203,7 +205,13 @@ REGLAS DE HTML:
     let createdCount = 0;
 
     const introHtml = (parsed.chapterIntro ?? "").trim();
+    const closingHtml = (parsed.chapterClosing ?? "").trim();
     const introWc = introHtml
+      .replace(/<[^>]*>/g, " ")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean).length;
+    const closingWc = closingHtml
       .replace(/<[^>]*>/g, " ")
       .trim()
       .split(/\s+/)
@@ -212,6 +220,7 @@ REGLAS DE HTML:
       .update(outlineNodes)
       .set({
         content: introHtml,
+        closingContent: closingHtml,
         wordCount: introWc,
         status: introWc > 0 ? "draft" : "empty",
         updatedAt: new Date(),
@@ -268,13 +277,14 @@ REGLAS DE HTML:
     }
 
     const summary = [
-      introWc > 0 ? `intro del capítulo (${introWc} palabras)` : null,
+      introWc > 0 ? `apertura (${introWc} palabras)` : null,
       updatedCount
         ? `${updatedCount} ${updatedCount === 1 ? "sección actualizada" : "secciones actualizadas"}`
         : null,
       createdCount
         ? `${createdCount} ${createdCount === 1 ? "nueva sección creada" : "nuevas secciones creadas"}`
         : null,
+      closingWc > 0 ? `cierre (${closingWc} palabras)` : null,
     ]
       .filter(Boolean)
       .join(" · ");

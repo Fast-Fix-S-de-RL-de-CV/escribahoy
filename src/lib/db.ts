@@ -73,6 +73,7 @@ function initSchema(db: Database.Database) {
       position INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'empty',
       content TEXT NOT NULL DEFAULT '',
+      closing_content TEXT NOT NULL DEFAULT '',
       script_content TEXT NOT NULL DEFAULT '',
       word_count INTEGER NOT NULL DEFAULT 0,
       target_words INTEGER NOT NULL DEFAULT 0,
@@ -143,6 +144,11 @@ function initSchema(db: Database.Database) {
     { table: "projects", column: "style_notes", ddl: "TEXT" },
     { table: "projects", column: "glossary", ddl: "TEXT" },
     { table: "projects", column: "avoid_terms", ddl: "TEXT" },
+    {
+      table: "outline_nodes",
+      column: "closing_content",
+      ddl: "TEXT NOT NULL DEFAULT ''",
+    },
   ];
   for (const m of migrations) {
     try {
