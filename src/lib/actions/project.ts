@@ -14,6 +14,7 @@ import {
 } from "@/lib/schema";
 import { requireUser } from "@/lib/auth";
 import { getAnthropic, MODEL, SYSTEM_BASE } from "@/lib/anthropic";
+import { logChange } from "@/lib/change-log";
 
 const CreateProjectSchema = z.object({
   type: z.enum(["book", "course"]),
@@ -57,6 +58,7 @@ export async function createProject(input: {
 const UpdateProjectSchema = z.object({
   id: z.string(),
   kindDetail: z.string().trim().optional(),
+  format: z.string().trim().optional().nullable(),
   title: z.string().trim().min(2).optional(),
   subtitle: z.string().trim().optional().nullable(),
   description: z.string().trim().optional().nullable(),
@@ -85,6 +87,13 @@ export async function updateProject(input: z.infer<typeof UpdateProjectSchema>) 
     .update(projects)
     .set({ ...rest, updatedAt: new Date() })
     .where(eq(projects.id, parsed.id));
+  await logChange({
+    projectId: parsed.id,
+    actor: "user",
+    kind: "update_settings",
+    description: `Actualizó la configuración del proyecto`,
+    metadata: rest as Record<string, unknown>,
+  });
 }
 
 export async function generateOutlineForProject(projectId: string) {
@@ -180,6 +189,53 @@ Responde ÚNICAMENTE con un JSON válido (sin markdown, sin texto antes ni despu
   await db.delete(outlineNodes).where(eq(outlineNodes.projectId, projectId));
   const now = new Date();
   let pos = 0;
+
+  // Front matter (libros): páginas preliminares estándar.
+  if (isBook) {
+    const frontMatter = buildFrontMatter(project.kindDetail);
+    for (const fm of frontMatter) {
+      await db.insert(outlineNodes).values({
+        id: nanoid(),
+        projectId,
+        parentId: null,
+        kind: "frontmatter",
+        title: fm.title,
+        summary: fm.summary,
+        position: pos++,
+        targetWords: fm.targetWords,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+  } else {
+    // Curso: bienvenida y cómo usar el curso
+    const intro = [
+      {
+        title: "Bienvenida",
+        summary: "Mensaje breve que da la bienvenida al alumno y enmarca el curso.",
+      },
+      {
+        title: "Cómo aprovechar este curso",
+        summary: "Guía rápida para usar el material, ritmo recomendado, recursos.",
+      },
+    ];
+    for (const i of intro) {
+      await db.insert(outlineNodes).values({
+        id: nanoid(),
+        projectId,
+        parentId: null,
+        kind: "frontmatter",
+        title: i.title,
+        summary: i.summary,
+        position: pos++,
+        targetWords: 200,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+  }
+
+  // Cuerpo: capítulos / módulos
   for (const node of parsed.nodes ?? []) {
     const parentId = nanoid();
     await db.insert(outlineNodes).values({
@@ -210,10 +266,153 @@ Responde ÚNICAMENTE con un JSON válido (sin markdown, sin texto antes ni despu
     }
   }
 
+  // Back matter (libros): páginas finales estándar.
+  if (isBook) {
+    const backMatter = buildBackMatter(project.kindDetail);
+    for (const bm of backMatter) {
+      await db.insert(outlineNodes).values({
+        id: nanoid(),
+        projectId,
+        parentId: null,
+        kind: "backmatter",
+        title: bm.title,
+        summary: bm.summary,
+        position: pos++,
+        targetWords: bm.targetWords,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+  } else {
+    // Curso: cierre + recursos
+    const closing = [
+      {
+        title: "Conclusión y siguientes pasos",
+        summary: "Resumen del aprendizaje, recomendaciones para profundizar.",
+      },
+      {
+        title: "Recursos adicionales",
+        summary: "Lecturas, herramientas y comunidades para seguir.",
+      },
+    ];
+    for (const c of closing) {
+      await db.insert(outlineNodes).values({
+        id: nanoid(),
+        projectId,
+        parentId: null,
+        kind: "backmatter",
+        title: c.title,
+        summary: c.summary,
+        position: pos++,
+        targetWords: 250,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+  }
+
   await db
     .update(projects)
     .set({ outlineGenerated: true, updatedAt: now })
     .where(eq(projects.id, projectId));
+
+  await logChange({
+    projectId,
+    actor: "ai",
+    kind: "generate_outline",
+    description: `Generó el outline completo (${parsed.nodes?.length ?? 0} ${isBook ? "capítulos" : "módulos"})`,
+  });
+}
+
+function buildFrontMatter(kindDetail: string | null) {
+  const base: Array<{ title: string; summary: string; targetWords: number }> = [
+    {
+      title: "Dedicatoria",
+      summary: "A quién le dedicas este libro. 1-3 frases personales.",
+      targetWords: 30,
+    },
+    {
+      title: "Epígrafe del libro",
+      summary: "Cita corta de un autor que inspira el espíritu del libro.",
+      targetWords: 30,
+    },
+    {
+      title: "Prefacio",
+      summary:
+        "Cómo nació este libro, por qué lo escribiste, a quién va dirigido.",
+      targetWords: 600,
+    },
+    {
+      title: "Agradecimientos",
+      summary: "Personas que hicieron posible este libro.",
+      targetWords: 200,
+    },
+    {
+      title: "Introducción",
+      summary:
+        "Plantea el problema central y promete el viaje que el lector hará.",
+      targetWords: 1200,
+    },
+  ];
+  if (kindDetail === "novela" || kindDetail === "cuentos") {
+    return base.filter((b) => b.title === "Dedicatoria" || b.title === "Epígrafe del libro");
+  }
+  if (kindDetail === "poesia") {
+    return base.filter((b) => ["Dedicatoria", "Epígrafe del libro"].includes(b.title));
+  }
+  if (kindDetail === "infantil") {
+    return base.filter((b) => b.title === "Dedicatoria");
+  }
+  return base;
+}
+
+function buildBackMatter(kindDetail: string | null) {
+  const epilogue = {
+    title: "Epílogo",
+    summary: "Reflexión final de cierre. Lo que el lector se lleva.",
+    targetWords: 800,
+  };
+  const aboutAuthor = {
+    title: "Sobre el autor",
+    summary: "Bio breve, contexto, dónde encontrarte (web/redes).",
+    targetWords: 200,
+  };
+  const glossary = {
+    title: "Glosario",
+    summary: "Términos clave usados en el libro con sus definiciones.",
+    targetWords: 600,
+  };
+  const bibliography = {
+    title: "Bibliografía y referencias",
+    summary: "Fuentes citadas en el libro, lecturas recomendadas.",
+    targetWords: 400,
+  };
+  const notes = {
+    title: "Notas",
+    summary: "Aclaraciones, citas extendidas, notas al final.",
+    targetWords: 300,
+  };
+
+  if (kindDetail === "novela" || kindDetail === "cuentos") {
+    return [aboutAuthor];
+  }
+  if (kindDetail === "poesia") {
+    return [aboutAuthor];
+  }
+  if (kindDetail === "infantil") {
+    return [aboutAuthor];
+  }
+  if (
+    kindDetail === "academico" ||
+    kindDetail === "tecnico"
+  ) {
+    return [epilogue, glossary, bibliography, notes, aboutAuthor];
+  }
+  if (kindDetail === "ensayo" || kindDetail === "no-ficcion") {
+    return [epilogue, bibliography, notes, aboutAuthor];
+  }
+  // auto-ayuda, negocios, manual, memoria
+  return [epilogue, glossary, aboutAuthor];
 }
 
 export async function deleteProject(projectId: string) {
@@ -273,12 +472,38 @@ export async function updateNode(input: z.infer<typeof UpdateSectionSchema>) {
     .update(projects)
     .set({ updatedAt: new Date() })
     .where(eq(projects.id, parsed.projectId));
+
+  // Log only meaningful user actions (avoid spamming on autosave content edits).
+  if (parsed.title !== undefined) {
+    await logChange({
+      projectId: parsed.projectId,
+      actor: "user",
+      kind: "rename_node",
+      nodeId: parsed.nodeId,
+      description: `Renombró a "${parsed.title}"`,
+    });
+  }
+  if (parsed.status !== undefined) {
+    await logChange({
+      projectId: parsed.projectId,
+      actor: "user",
+      kind: "update_status",
+      nodeId: parsed.nodeId,
+      description: `Marcó como ${parsed.status}`,
+    });
+  }
 }
 
 export async function addNode(input: {
   projectId: string;
   parentId: string | null;
-  kind: "chapter" | "section" | "module" | "lesson";
+  kind:
+    | "chapter"
+    | "section"
+    | "module"
+    | "lesson"
+    | "frontmatter"
+    | "backmatter";
   title: string;
 }) {
   const user = await requireUser();

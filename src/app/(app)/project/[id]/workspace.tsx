@@ -23,10 +23,12 @@ import {
   RotateCcwIcon,
   UploadCloudIcon,
   Settings2Icon,
+  HistoryIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Progress } from "@/components/ui/card";
 import { ProjectSettings } from "@/components/project-settings";
+import { HistoryDrawer } from "@/components/history-drawer";
 import { logoutAction } from "@/lib/actions/auth";
 import {
   addNode,
@@ -39,6 +41,8 @@ import type { OutlineNode, Project, AIMessage, User } from "@/lib/schema";
 import { cn, formatRelative, plural, wordCount } from "@/lib/utils";
 import { RichEditor } from "@/components/rich-editor";
 import { getMissingCoreSettings } from "@/lib/project-validation";
+import { getFormat } from "@/lib/book-formats";
+import { CanvasPreview } from "@/components/canvas-preview";
 import { AlertTriangleIcon } from "lucide-react";
 
 type KbItem = { id: string; name: string; sizeBytes: number; chars: number };
@@ -65,6 +69,7 @@ export function ProjectWorkspace({
   const [activeNodeId, setActiveNodeId] = useState<string | null>(initialNodeId);
   const [showKb, setShowKb] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   // Sync server-side updates back into local state when they come via router.refresh().
   useEffect(() => setNodes(initialNodes), [initialNodes]);
 
@@ -106,6 +111,7 @@ export function ProjectWorkspace({
         kpis={kpis}
         onOpenKb={() => setShowKb(true)}
         onOpenSettings={() => setShowSettings(true)}
+        onOpenHistory={() => setShowHistory(true)}
       />
       {missingCore.length > 0 && (
         <div className="bg-amber-50 border-b border-amber-200 px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
@@ -137,10 +143,15 @@ export function ProjectWorkspace({
           activeNodeId={activeNodeId}
           onSelect={setActiveNodeId}
           onAddNode={async (parentId, kind) => {
-            const title =
-              kind === "chapter" || kind === "module"
-                ? `Nuevo ${kind === "chapter" ? "capítulo" : "módulo"}`
-                : `Nueva ${kind === "section" ? "sección" : "lección"}`;
+            const titles: Record<string, string> = {
+              chapter: "Nuevo capítulo",
+              module: "Nuevo módulo",
+              section: "Nueva sección",
+              lesson: "Nueva lección",
+              frontmatter: "Nueva página preliminar",
+              backmatter: "Nueva página final",
+            };
+            const title = titles[kind] ?? "Nuevo nodo";
             const { id } = await addNode({
               projectId: project.id,
               parentId,
@@ -165,7 +176,13 @@ export function ProjectWorkspace({
               updatedAt: now,
             };
             setNodes((ns) => [...ns, created]);
-            if (kind === "section" || kind === "lesson") setActiveNodeId(id);
+            if (
+              kind === "section" ||
+              kind === "lesson" ||
+              kind === "frontmatter" ||
+              kind === "backmatter"
+            )
+              setActiveNodeId(id);
           }}
           onDelete={async (id) => {
             await deleteNode({ projectId: project.id, nodeId: id });
@@ -204,6 +221,12 @@ export function ProjectWorkspace({
           onClose={() => setShowSettings(false)}
         />
       )}
+      {showHistory && (
+        <HistoryDrawer
+          projectId={project.id}
+          onClose={() => setShowHistory(false)}
+        />
+      )}
     </div>
   );
 }
@@ -214,12 +237,14 @@ function Topbar({
   kpis,
   onOpenKb,
   onOpenSettings,
+  onOpenHistory,
 }: {
   project: Project;
   user: User;
   kpis: { total: number; completed: number; progress: number; words: number };
   onOpenKb: () => void;
   onOpenSettings: () => void;
+  onOpenHistory: () => void;
 }) {
   return (
     <header className="border-b border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-4 py-3 flex items-center justify-between gap-4">
@@ -243,10 +268,33 @@ function Topbar({
             {project.title}
           </div>
           <div className="text-xs text-[var(--color-fg-subtle)]">
-            {project.type === "book" ? "Libro" : "Curso"} · actualizado{" "}
+            {project.type === "book" ? "Libro" : "Curso"}
+            {(() => {
+              const fmt = getFormat(project.format);
+              return fmt ? (
+                <>
+                  {" · "}
+                  <span title={fmt.description}>
+                    {fmt.label} · {fmt.widthIn}×{fmt.heightIn}″
+                  </span>
+                </>
+              ) : null;
+            })()}
+            {" · actualizado "}
             {formatRelative(project.updatedAt)}
           </div>
         </div>
+        {(() => {
+          const fmt = getFormat(project.format);
+          return fmt ? (
+            <CanvasPreview
+              widthIn={fmt.widthIn}
+              heightIn={fmt.heightIn}
+              previewHeight={28}
+              selected
+            />
+          ) : null;
+        })()}
       </div>
       <div className="hidden lg:flex items-center gap-5 text-sm">
         <KpiInline
@@ -262,6 +310,9 @@ function Topbar({
         </div>
       </div>
       <div className="flex items-center gap-2">
+        <Button variant="ghost" size="icon" onClick={onOpenHistory} title="Historial">
+          <HistoryIcon className="h-4 w-4" />
+        </Button>
         <Button variant="outline" size="sm" onClick={onOpenKb}>
           <PaperclipIcon className="h-4 w-4" />
           Knowledge base
@@ -314,7 +365,7 @@ function OutlinePanel({
   onSelect: (id: string) => void;
   onAddNode: (
     parentId: string | null,
-    kind: "chapter" | "section" | "module" | "lesson"
+    kind: "chapter" | "section" | "module" | "lesson" | "frontmatter" | "backmatter"
   ) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onRename: (id: string, title: string) => Promise<void>;
@@ -323,26 +374,47 @@ function OutlinePanel({
   const parentKind: "chapter" | "module" = isBook ? "chapter" : "module";
   const childKind: "section" | "lesson" = isBook ? "section" : "lesson";
 
+  const front = nodes
+    .filter((n) => !n.parentId && n.kind === "frontmatter")
+    .sort((a, b) => a.position - b.position);
   const roots = nodes
     .filter((n) => !n.parentId && n.kind === parentKind)
+    .sort((a, b) => a.position - b.position);
+  const back = nodes
+    .filter((n) => !n.parentId && n.kind === "backmatter")
     .sort((a, b) => a.position - b.position);
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   return (
     <aside className="border-r border-[var(--color-border)] bg-[var(--color-bg-elevated)] overflow-y-auto">
-      <div className="px-4 py-3 border-b border-[var(--color-border)] flex items-center justify-between">
-        <div className="text-xs font-semibold uppercase tracking-wider text-[var(--color-fg-subtle)]">
-          {isBook ? "Capítulos" : "Módulos"}
-        </div>
-        <button
-          onClick={() => onAddNode(null, parentKind)}
-          className="text-[var(--color-fg-muted)] hover:text-[var(--color-accent)] p-1"
-          title="Agregar"
-        >
-          <PlusIcon className="h-4 w-4" />
-        </button>
-      </div>
+      {(front.length > 0 || roots.length === 0) && (
+        <>
+          <SidebarHeader
+            title={isBook ? "Preliminares" : "Introducción"}
+            onAdd={() => onAddNode(null, "frontmatter")}
+          />
+          <div className="px-2 py-1.5 space-y-0.5">
+            {front.map((n, i) => (
+              <OutlineRow
+                key={n.id}
+                node={n}
+                index={i + 1}
+                isLeaf
+                active={activeNodeId === n.id}
+                onClick={() => onSelect(n.id)}
+                onDelete={() => onDelete(n.id)}
+                onRename={(t) => onRename(n.id, t)}
+              />
+            ))}
+          </div>
+        </>
+      )}
+
+      <SidebarHeader
+        title={isBook ? "Capítulos" : "Módulos"}
+        onAdd={() => onAddNode(null, parentKind)}
+      />
       <div className="p-2 space-y-0.5">
         {roots.length === 0 && (
           <div className="text-sm text-[var(--color-fg-subtle)] p-3 text-center">
@@ -395,7 +467,55 @@ function OutlinePanel({
           );
         })}
       </div>
+
+      {back.length > 0 && (
+        <>
+          <SidebarHeader
+            title={isBook ? "Cierre" : "Cierre"}
+            onAdd={() => onAddNode(null, "backmatter")}
+          />
+          <div className="px-2 py-1.5 space-y-0.5 mb-3">
+            {back.map((n, i) => (
+              <OutlineRow
+                key={n.id}
+                node={n}
+                index={i + 1}
+                isLeaf
+                active={activeNodeId === n.id}
+                onClick={() => onSelect(n.id)}
+                onDelete={() => onDelete(n.id)}
+                onRename={(t) => onRename(n.id, t)}
+              />
+            ))}
+          </div>
+        </>
+      )}
     </aside>
+  );
+}
+
+function SidebarHeader({
+  title,
+  onAdd,
+}: {
+  title: string;
+  onAdd?: () => void;
+}) {
+  return (
+    <div className="px-4 py-3 border-b border-t border-[var(--color-border)] flex items-center justify-between bg-[var(--color-bg-muted)]/40">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-fg-subtle)]">
+        {title}
+      </div>
+      {onAdd && (
+        <button
+          onClick={onAdd}
+          className="text-[var(--color-fg-muted)] hover:text-[var(--color-accent)] p-1"
+          title="Agregar"
+        >
+          <PlusIcon className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
   );
 }
 

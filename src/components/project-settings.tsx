@@ -17,6 +17,8 @@ import {
 } from "@/lib/actions/project";
 import { BOOK_KINDS, COURSE_KINDS } from "@/lib/project-kinds";
 import { getMissingCoreSettings } from "@/lib/project-validation";
+import { BOOK_FORMATS, defaultFormatFor } from "@/lib/book-formats";
+import { CanvasPreview } from "@/components/canvas-preview";
 import type { Project } from "@/lib/schema";
 
 const TONES = ["directo", "narrativo", "academico", "conversacional"];
@@ -57,6 +59,7 @@ export function ProjectSettings({
     subtitle: project.subtitle ?? "",
     description: project.description ?? "",
     kindDetail: project.kindDetail ?? "",
+    format: project.format ?? defaultFormatFor(project.kindDetail),
     audience: project.audience ?? "",
     tone: project.tone ?? "",
     goal: project.goal ?? "",
@@ -93,6 +96,7 @@ export function ProjectSettings({
           subtitle: form.subtitle || null,
           description: form.description || null,
           kindDetail: form.kindDetail || undefined,
+          format: form.format || null,
           audience: form.audience || null,
           tone: form.tone || null,
           goal: form.goal || null,
@@ -256,6 +260,45 @@ export function ProjectSettings({
               </p>
             )}
           </Section>
+
+          {isBook && (
+            <Section
+              title="Formato de impresión"
+              help="El tamaño físico del libro impreso. Sugerimos uno según el tipo elegido."
+            >
+              <div className="grid grid-cols-2 gap-2">
+                {BOOK_FORMATS.map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => update("format", f.id)}
+                    className={`text-left rounded-md border p-2.5 transition-all ${
+                      form.format === f.id
+                        ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
+                        : "border-[var(--color-border)] hover:border-[var(--color-border-strong)]"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <CanvasPreview
+                        widthIn={f.widthIn}
+                        heightIn={f.heightIn}
+                        previewHeight={32}
+                        selected={form.format === f.id}
+                      />
+                      <div className="min-w-0">
+                        <div className="text-xs font-medium truncate">
+                          {f.label}
+                        </div>
+                        <div className="text-[10px] text-[var(--color-fg-subtle)]">
+                          {f.widthIn}×{f.heightIn}″ · {f.widthMm}×{f.heightMm}mm
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </Section>
+          )}
 
           <Section title="Audiencia y tono" required>
             <div>

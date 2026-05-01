@@ -8,6 +8,7 @@ import {
   renderDecorationHtml,
   type DecorationKind,
 } from "@/lib/decorations";
+import { logChange } from "@/lib/change-log";
 import type { Project } from "@/lib/schema";
 import type Anthropic from "@anthropic-ai/sdk";
 
@@ -199,10 +200,18 @@ export async function executeTool(
         if (!nodeId || !newTitle) return { ok: false, error: "nodeId y newTitle requeridos" };
         const found = await assertNodeOwned(nodeId, ctx);
         if (!found) return { ok: false, error: "nodo no encontrado" };
+        const oldTitle = found.title;
         await db
           .update(outlineNodes)
           .set({ title: newTitle, updatedAt: new Date() })
           .where(eq(outlineNodes.id, nodeId));
+        await logChange({
+          projectId: ctx.projectId,
+          actor: "ai",
+          kind: "rename_node",
+          nodeId,
+          description: `Renombró "${oldTitle}" → "${newTitle}"`,
+        });
         return { ok: true };
       }
       case "update_node_summary": {
@@ -215,6 +224,13 @@ export async function executeTool(
           .update(outlineNodes)
           .set({ summary, updatedAt: new Date() })
           .where(eq(outlineNodes.id, nodeId));
+        await logChange({
+          projectId: ctx.projectId,
+          actor: "ai",
+          kind: "update_summary",
+          nodeId,
+          description: `Actualizó el resumen de "${found.title}"`,
+        });
         return { ok: true };
       }
       case "add_node": {
@@ -259,12 +275,20 @@ export async function executeTool(
           createdAt: now,
           updatedAt: now,
         });
+        await logChange({
+          projectId: ctx.projectId,
+          actor: "ai",
+          kind: "add_node",
+          nodeId: id,
+          description: `Agregó "${title}" (${kind})`,
+        });
         return { ok: true, data: { id } };
       }
       case "delete_node": {
         const nodeId = String(rawInput.nodeId ?? "");
         const found = await assertNodeOwned(nodeId, ctx);
         if (!found) return { ok: false, error: "nodo no encontrado" };
+        const oldTitle = found.title;
         // Delete children first (one level — outline only has 2 levels).
         await db
           .delete(outlineNodes)
@@ -275,6 +299,13 @@ export async function executeTool(
             )
           );
         await db.delete(outlineNodes).where(eq(outlineNodes.id, nodeId));
+        await logChange({
+          projectId: ctx.projectId,
+          actor: "ai",
+          kind: "delete_node",
+          nodeId,
+          description: `Eliminó "${oldTitle}"`,
+        });
         return { ok: true };
       }
       case "move_node": {
@@ -295,6 +326,13 @@ export async function executeTool(
             updatedAt: new Date(),
           })
           .where(eq(outlineNodes.id, nodeId));
+        await logChange({
+          projectId: ctx.projectId,
+          actor: "ai",
+          kind: "move_node",
+          nodeId,
+          description: `Reordenó "${found.title}"`,
+        });
         return { ok: true };
       }
       case "append_to_section": {
@@ -313,6 +351,7 @@ export async function executeTool(
         const newContent = (node.content || "") + html;
         const wc = newContent.replace(/<[^>]*>/g, " ").trim().split(/\s+/)
           .filter(Boolean).length;
+        const addedWords = wc - (node.wordCount ?? 0);
         await db
           .update(outlineNodes)
           .set({
@@ -322,6 +361,13 @@ export async function executeTool(
             updatedAt: new Date(),
           })
           .where(eq(outlineNodes.id, nodeId));
+        await logChange({
+          projectId: ctx.projectId,
+          actor: "ai",
+          kind: "append_content",
+          nodeId,
+          description: `Añadió ${addedWords > 0 ? addedWords : ""} palabras a "${node.title}"`,
+        });
         return { ok: true };
       }
       case "replace_section_content": {
@@ -348,6 +394,13 @@ export async function executeTool(
             updatedAt: new Date(),
           })
           .where(eq(outlineNodes.id, nodeId));
+        await logChange({
+          projectId: ctx.projectId,
+          actor: "ai",
+          kind: "replace_content",
+          nodeId,
+          description: `Reemplazó el contenido de "${node.title}" (${wc} palabras nuevas)`,
+        });
         return { ok: true };
       }
       case "insert_decoration": {
@@ -384,6 +437,13 @@ export async function executeTool(
             updatedAt: new Date(),
           })
           .where(eq(outlineNodes.id, nodeId));
+        await logChange({
+          projectId: ctx.projectId,
+          actor: "ai",
+          kind: "insert_decoration",
+          nodeId,
+          description: `Insertó accesorio (${kind}) en "${node.title}"`,
+        });
         return { ok: true };
       }
       default:

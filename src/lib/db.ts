@@ -109,11 +109,23 @@ function initSchema(db: Database.Database) {
       words_added INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS writing_days_user_day ON writing_days(user_id, day);
+    CREATE TABLE IF NOT EXISTS change_log (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      actor TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      node_id TEXT,
+      description TEXT NOT NULL,
+      metadata TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS change_log_project_time ON change_log(project_id, created_at);
   `);
 
   // Idempotent column adds for existing DBs created before these fields existed.
   const migrations: Array<{ table: string; column: string; ddl: string }> = [
     { table: "projects", column: "kind_detail", ddl: "TEXT" },
+    { table: "projects", column: "format", ddl: "TEXT" },
     { table: "projects", column: "perspective", ddl: "TEXT" },
     { table: "projects", column: "formality", ddl: "TEXT" },
     { table: "projects", column: "style_notes", ddl: "TEXT" },

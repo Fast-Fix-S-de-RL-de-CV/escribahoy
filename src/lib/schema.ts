@@ -33,6 +33,7 @@ export const projects = sqliteTable("projects", {
   tone: text("tone"),
   goal: text("goal"),
   language: text("language").default("es").notNull(),
+  format: text("format"),
   perspective: text("perspective"),
   formality: text("formality"),
   styleNotes: text("style_notes"),
@@ -59,7 +60,14 @@ export const outlineNodes = sqliteTable("outline_nodes", {
     .references(() => projects.id, { onDelete: "cascade" }),
   parentId: text("parent_id"),
   kind: text("kind", {
-    enum: ["chapter", "section", "module", "lesson"],
+    enum: [
+      "chapter",
+      "section",
+      "module",
+      "lesson",
+      "frontmatter",
+      "backmatter",
+    ],
   }).notNull(),
   title: text("title").notNull(),
   summary: text("summary"),
@@ -109,6 +117,21 @@ export const aiMessages = sqliteTable("ai_messages", {
     .$defaultFn(() => new Date()),
 });
 
+export const changeLog = sqliteTable("change_log", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  actor: text("actor", { enum: ["user", "ai"] }).notNull(),
+  kind: text("kind").notNull(),
+  nodeId: text("node_id"),
+  description: text("description").notNull(),
+  metadata: text("metadata"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 export const writingDays = sqliteTable("writing_days", {
   id: text("id").primaryKey(),
   userId: text("user_id")
@@ -141,3 +164,4 @@ export type Project = typeof projects.$inferSelect;
 export type OutlineNode = typeof outlineNodes.$inferSelect;
 export type KnowledgeFile = typeof knowledgeFiles.$inferSelect;
 export type AIMessage = typeof aiMessages.$inferSelect;
+export type ChangeLog = typeof changeLog.$inferSelect;
