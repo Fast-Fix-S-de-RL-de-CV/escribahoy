@@ -30,8 +30,15 @@ export async function POST(req: NextRequest) {
   const body = (await req.json()) as {
     projectId: string;
     nodeId?: string | null;
+    scope?: "section" | "global";
     message: string;
   };
+  const scope: "section" | "global" =
+    body.scope === "section" || body.scope === "global"
+      ? body.scope
+      : body.nodeId
+        ? "section"
+        : "global";
 
   const projectRows = await db
     .select()
@@ -92,7 +99,8 @@ export async function POST(req: NextRequest) {
           : "";
 
         let activeSection = "";
-        if (body.nodeId) {
+        let scopeInstruction = "";
+        if (body.nodeId && scope === "section") {
           const node = await db
             .select()
             .from(outlineNodes)
@@ -102,7 +110,24 @@ export async function POST(req: NextRequest) {
             activeSection = `\n\nEstás trabajando en este momento en: id=${node[0].id} "${node[0].title}" (${node[0].kind}).
 ${node[0].summary ? `Resumen: ${node[0].summary}\n` : ""}Contenido actual (${node[0].wordCount} palabras):
 ${(node[0].content || "(vacío)").replace(/<[^>]*>/g, " ").slice(0, 4000)}`;
+            scopeInstruction = `
+
+ALCANCE ACTUAL DEL CHAT: "Esta sección" — el usuario eligió que trabajemos SOLO en "${node[0].title}" (id=${node[0].id}).
+
+Reglas para este alcance:
+- Toda acción que ejecutes con tools debe afectar esta sección o sus hijos directos.
+- Si el usuario te pide algo que claramente afecta OTRAS secciones, capítulos, el outline completo, el título del libro, o la configuración del proyecto:
+  1. NO ejecutes la herramienta inmediatamente.
+  2. Responde explicando que esa acción es de alcance global y afecta más allá de esta sección.
+  3. Pregúntale si quiere que cambie el alcance a "Todo el proyecto" para proceder, o si prefiere reformular.
+  4. Solo después de su confirmación explícita, ejecuta las herramientas.
+- Acciones consideradas globales: regenerar outline, agregar/eliminar/renombrar capítulos enteros, mover capítulos, editar otra sección distinta, cambiar settings del proyecto.
+- Acciones de alcance local OK: append_to_section/replace_section_content sobre la sección actual, insert_decoration en la sección actual, update_node_summary o rename_node SOBRE la sección actual.`;
           }
+        } else {
+          scopeInstruction = `
+
+ALCANCE ACTUAL DEL CHAT: "Todo el proyecto" — puedes editar cualquier capítulo, sección, módulo, lección o el outline completo según lo que pida el usuario. Aún así pregunta antes de eliminar capítulos enteros.`;
         }
 
         const buildSystem = (currentOutline: string) => `${SYSTEM_BASE}
@@ -129,7 +154,7 @@ Reglas para tools:
 
 Outline actual (con IDs):
 ${currentOutline}
-${kbContext ? `\nKnowledge base:\n${kbContext}` : ""}${activeSection}`;
+${kbContext ? `\nKnowledge base:\n${kbContext}` : ""}${activeSection}${scopeInstruction}`;
 
         const anthropic = getAnthropic();
         const messages: Anthropic.Messages.MessageParam[] = [

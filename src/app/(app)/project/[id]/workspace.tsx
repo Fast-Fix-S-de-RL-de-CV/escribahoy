@@ -974,7 +974,15 @@ function AIPanel({
   const [streamTools, setStreamTools] = useState<ToolEvent[]>([]);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [doneToast, setDoneToast] = useState<string | null>(null);
+  const [scope, setScope] = useState<"section" | "global">(
+    activeNode ? "section" : "global"
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // If the user changes the active section, default scope back to section.
+  useEffect(() => {
+    setScope(activeNode ? "section" : "global");
+  }, [activeNode?.id]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -1028,7 +1036,8 @@ function AIPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           projectId: project.id,
-          nodeId: activeNode?.id ?? null,
+          nodeId: scope === "section" ? activeNode?.id ?? null : null,
+          scope,
           message: text,
         }),
       });
@@ -1155,12 +1164,7 @@ function AIPanel({
           <span className="h-7 w-7 rounded-md bg-[var(--color-accent-soft)] grid place-items-center text-[var(--color-accent)]">
             <SparklesIcon className="h-3.5 w-3.5" />
           </span>
-          <div>
-            <div className="text-sm font-semibold">Escribahoy</div>
-            <div className="text-xs text-[var(--color-fg-subtle)]">
-              {activeNode ? `Trabajando en: ${activeNode.title}` : "Vista general"}
-            </div>
-          </div>
+          <div className="text-sm font-semibold">Escribahoy</div>
         </div>
         {messages.length > 0 && (
           <button
@@ -1261,16 +1265,68 @@ function AIPanel({
           </div>
         )}
       </div>
-      <div className="border-t border-[var(--color-border)] p-3 relative">
+      <div className="border-t border-[var(--color-border)] relative">
         {doneToast && (
           <div
-            className="absolute -top-9 left-1/2 -translate-x-1/2 bg-[var(--color-fg)] text-[var(--color-bg)] text-xs px-3 py-1.5 rounded-full shadow-md flex items-center gap-1.5 animate-pop-fade pointer-events-none whitespace-nowrap"
+            className="absolute -top-9 left-1/2 -translate-x-1/2 bg-[var(--color-fg)] text-[var(--color-bg)] text-xs px-3 py-1.5 rounded-full shadow-md flex items-center gap-1.5 animate-pop-fade pointer-events-none whitespace-nowrap z-10"
             role="status"
           >
             <CheckIcon className="h-3 w-3" />
             {doneToast}
           </div>
         )}
+
+        <div className="px-3 pt-2.5 pb-2 flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-muted)]/30">
+          <div className="flex rounded-full bg-[var(--color-bg-elevated)] border border-[var(--color-border)] p-0.5 text-[11px] flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => activeNode && setScope("section")}
+              disabled={!activeNode}
+              className={`px-2.5 py-1 rounded-full transition-all flex items-center gap-1 ${
+                scope === "section"
+                  ? "bg-[var(--color-accent)] text-white font-medium"
+                  : "text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]"
+              } ${!activeNode ? "opacity-40 cursor-not-allowed" : ""}`}
+              title={
+                activeNode
+                  ? "Las instrucciones solo afectan esta sección"
+                  : "Selecciona una sección primero"
+              }
+            >
+              <PenLineIcon className="h-2.5 w-2.5" />
+              Esta sección
+            </button>
+            <button
+              type="button"
+              onClick={() => setScope("global")}
+              className={`px-2.5 py-1 rounded-full transition-all flex items-center gap-1 ${
+                scope === "global"
+                  ? "bg-[var(--color-accent)] text-white font-medium"
+                  : "text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]"
+              }`}
+              title="La IA puede tocar cualquier parte del proyecto"
+            >
+              <BookOpenIcon className="h-2.5 w-2.5" />
+              Todo el proyecto
+            </button>
+          </div>
+          <div className="text-[11px] text-[var(--color-fg-muted)] truncate min-w-0 flex-1">
+            {scope === "section" && activeNode ? (
+              <>
+                <span className="text-[var(--color-fg-subtle)]">trabajando en:</span>{" "}
+                <span className="font-medium text-[var(--color-fg)]">
+                  {activeNode.title}
+                </span>
+              </>
+            ) : (
+              <span className="text-[var(--color-fg-subtle)]">
+                la IA puede editar cualquier capítulo, sección u outline
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="p-3">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -1322,6 +1378,7 @@ function AIPanel({
             </span>
           )}
         </p>
+        </div>
       </div>
     </aside>
   );
