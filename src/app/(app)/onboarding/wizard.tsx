@@ -21,6 +21,15 @@ import {
   generateOutlineForProject,
 } from "@/lib/actions/project";
 import { BOOK_KINDS, COURSE_KINDS } from "@/lib/project-kinds";
+import {
+  BOOK_FORMATS,
+  defaultFormatFor,
+  defaultPagesFor,
+  validatePages,
+  estimatedTotalWords,
+  getFormat,
+} from "@/lib/book-formats";
+import { CanvasPreview } from "@/components/canvas-preview";
 
 type ProjectType = "book" | "course";
 type Tone = "directo" | "narrativo" | "academico" | "conversacional";
@@ -48,6 +57,8 @@ export function OnboardingWizard() {
   const [step, setStep] = useState(0);
   const [type, setType] = useState<ProjectType | null>(null);
   const [kindDetail, setKindDetail] = useState<string | null>(null);
+  const [format, setFormat] = useState<string | null>(null);
+  const [targetPages, setTargetPages] = useState<number | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [audience, setAudience] = useState("");
@@ -61,8 +72,21 @@ export function OnboardingWizard() {
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
-  const totalSteps = 6;
-  const progress = ((step + 1) / totalSteps) * 100;
+  // Steps: 0=type, 1=kindDetail, 2=sizeAndPages (book only), 3=titleDesc, 4=audienceTone, 5=kb, 6=generate.
+  // For courses, step 2 is skipped automatically.
+  const isBookFlow = type === "book";
+  const totalSteps = isBookFlow ? 7 : 6;
+  const visibleStep = isBookFlow ? step : step >= 2 ? step - 1 : step;
+  const progress = ((visibleStep + 1) / totalSteps) * 100;
+
+  function goNext(from: number) {
+    if (!isBookFlow && from === 1) setStep(3);
+    else setStep(from + 1);
+  }
+  function goPrev(from: number) {
+    if (!isBookFlow && from === 3) setStep(1);
+    else setStep(from - 1);
+  }
 
   async function handleCreateAndContinue() {
     if (!type || !title.trim()) return;
@@ -71,6 +95,8 @@ export function OnboardingWizard() {
         const { id } = await createProject({
           type,
           kindDetail: kindDetail ?? undefined,
+          format: format ?? undefined,
+          targetPages: targetPages ?? undefined,
           title: title.trim(),
           description: description.trim() || undefined,
           audience: audience.trim() || undefined,
@@ -78,7 +104,8 @@ export function OnboardingWizard() {
           goal: goal.trim() || undefined,
         });
         setProjectId(id);
-        setStep(4);
+        // Avanza a KB (step 5 en ambos flujos)
+        setStep(5);
       } catch (e) {
         console.error(e);
       }
@@ -213,13 +240,25 @@ export function OnboardingWizard() {
           </div>
           <Footer
             onPrev={() => setStep(0)}
-            onNext={() => setStep(2)}
+            onNext={() => goNext(1)}
             nextDisabled={!kindDetail}
           />
         </div>
       )}
 
-      {step === 2 && (
+      {step === 2 && isBookFlow && (
+        <SizeAndPagesStep
+          kindDetail={kindDetail}
+          format={format}
+          targetPages={targetPages}
+          setFormat={setFormat}
+          setTargetPages={setTargetPages}
+          onPrev={() => setStep(1)}
+          onNext={() => setStep(3)}
+        />
+      )}
+
+      {step === 3 && (
         <div className="animate-fade-in">
           <h1 className="text-3xl font-semibold tracking-tight">
             Cuéntame de tu {type === "book" ? "libro" : "curso"}
@@ -260,14 +299,14 @@ export function OnboardingWizard() {
             </div>
           </div>
           <Footer
-            onPrev={() => setStep(1)}
-            onNext={() => setStep(3)}
+            onPrev={() => goPrev(3)}
+            onNext={() => setStep(4)}
             nextDisabled={!title.trim()}
           />
         </div>
       )}
 
-      {step === 3 && (
+      {step === 4 && (
         <div className="animate-fade-in">
           <h1 className="text-3xl font-semibold tracking-tight">
             ¿Para quién y con qué tono?
@@ -308,14 +347,14 @@ export function OnboardingWizard() {
             </div>
           </div>
           <Footer
-            onPrev={() => setStep(2)}
+            onPrev={() => setStep(3)}
             onNext={handleCreateAndContinue}
             nextLabel="Continuar"
           />
         </div>
       )}
 
-      {step === 4 && (
+      {step === 5 && (
         <div className="animate-fade-in">
           <h1 className="text-3xl font-semibold tracking-tight">
             Knowledge base inicial
@@ -365,14 +404,14 @@ export function OnboardingWizard() {
             </div>
           </div>
           <Footer
-            onPrev={() => setStep(3)}
-            onNext={() => setStep(5)}
+            onPrev={() => setStep(4)}
+            onNext={() => setStep(6)}
             nextLabel={uploads.length ? "Continuar" : "Saltar"}
           />
         </div>
       )}
 
-      {step === 5 && (
+      {step === 6 && (
         <div className="animate-fade-in">
           <div className="text-center max-w-xl mx-auto">
             <div className="h-14 w-14 rounded-full bg-[var(--color-accent-soft)] grid place-items-center text-[var(--color-accent)] mx-auto mb-5">
@@ -396,6 +435,29 @@ export function OnboardingWizard() {
                   {(type === "book" ? BOOK_KINDS : COURSE_KINDS).find(
                     (k) => k.id === kindDetail
                   )?.label}
+                </div>
+              )}
+              {isBookFlow && format && (
+                <div>
+                  <span className="text-[var(--color-fg-subtle)]">Formato:</span>{" "}
+                  {(() => {
+                    const f = getFormat(format);
+                    return f
+                      ? `${f.label} · ${f.widthIn}×${f.heightIn}″ (${f.widthCm}×${f.heightCm}cm)`
+                      : format;
+                  })()}
+                </div>
+              )}
+              {isBookFlow && targetPages && (
+                <div>
+                  <span className="text-[var(--color-fg-subtle)]">Extensión:</span>{" "}
+                  {targetPages} páginas
+                  {(() => {
+                    const w = estimatedTotalWords(format, targetPages);
+                    return w
+                      ? ` · ~${w.toLocaleString("es-MX")} palabras`
+                      : "";
+                  })()}
                 </div>
               )}
               {audience && (
@@ -422,7 +484,7 @@ export function OnboardingWizard() {
             <div className="mt-6 flex items-center justify-center gap-3">
               <Button
                 variant="outline"
-                onClick={() => setStep(4)}
+                onClick={() => setStep(5)}
                 disabled={generating}
               >
                 <ArrowLeftIcon className="h-4 w-4" /> Atrás
@@ -521,6 +583,207 @@ function Footer({
       </Button>
     </div>
   );
+}
+
+function SizeAndPagesStep({
+  kindDetail,
+  format,
+  targetPages,
+  setFormat,
+  setTargetPages,
+  onPrev,
+  onNext,
+}: {
+  kindDetail: string | null;
+  format: string | null;
+  targetPages: number | null;
+  setFormat: (f: string) => void;
+  setTargetPages: (p: number) => void;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  // Inicializar con sugerencia automática si está vacío.
+  const effectiveFormat = format ?? defaultFormatFor(kindDetail);
+  const effectivePages =
+    targetPages ?? defaultPagesFor(effectiveFormat);
+  const fmt = getFormat(effectiveFormat);
+  const validation = validatePages(effectiveFormat, effectivePages);
+  const totalWords = estimatedTotalWords(effectiveFormat, effectivePages);
+
+  // Valida si puede continuar: necesita formato y páginas válidas (no error).
+  const canContinue =
+    !!effectiveFormat &&
+    !!effectivePages &&
+    (validation.ok || validation.severity !== "error");
+
+  return (
+    <div className="animate-fade-in">
+      <h1 className="text-3xl font-semibold tracking-tight">
+        Tamaño y extensión del libro
+      </h1>
+      <p className="text-[var(--color-fg-muted)] mt-2">
+        Esto es indispensable para que la IA pueda estructurar el libro de forma
+        proporcional. Las sugerencias se ajustan al tipo que elegiste.
+      </p>
+
+      <div className="mt-6">
+        <div className="text-xs font-semibold uppercase tracking-wider text-[var(--color-fg-subtle)] mb-3">
+          Formato físico
+        </div>
+        <div className="grid sm:grid-cols-2 gap-2">
+          {BOOK_FORMATS.map((f) => {
+            const recommended = kindDetail
+              ? f.fitsKinds.includes(kindDetail)
+              : false;
+            const selected = effectiveFormat === f.id;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setFormat(f.id)}
+                className={`text-left rounded-md border p-3 transition-all ${
+                  selected
+                    ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
+                    : "border-[var(--color-border)] hover:border-[var(--color-border-strong)]"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <CanvasPreview
+                    widthIn={f.widthIn}
+                    heightIn={f.heightIn}
+                    previewHeight={44}
+                    selected={selected}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm font-medium">{f.label}</div>
+                      {recommended && !selected && (
+                        <span className="text-[10px] text-[var(--color-accent)] bg-[var(--color-accent-soft)] px-1.5 py-0.5 rounded">
+                          recomendado
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-[var(--color-fg-muted)] mt-0.5">
+                      {f.widthIn}×{f.heightIn}″ · {f.widthCm}×{f.heightCm}cm ·{" "}
+                      {f.widthMm}×{f.heightMm}mm
+                    </div>
+                    <div className="text-[11px] text-[var(--color-fg-subtle)] mt-0.5">
+                      Ideal: {f.pageSweetMin}–{f.pageSweetMax} páginas
+                    </div>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {fmt && (
+        <div className="mt-6">
+          <div className="text-xs font-semibold uppercase tracking-wider text-[var(--color-fg-subtle)] mb-3">
+            Páginas objetivo
+          </div>
+          <div className="bg-[var(--color-bg-muted)] rounded-md p-4">
+            <p className="text-sm text-[var(--color-fg-muted)] mb-3">
+              {fmt.label} acepta entre <strong>{fmt.pageMin}</strong> y{" "}
+              <strong>{fmt.pageMax}</strong> páginas. Lo ideal está entre{" "}
+              <strong>{fmt.pageSweetMin}</strong> y{" "}
+              <strong>{fmt.pageSweetMax}</strong>.
+            </p>
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min={fmt.pageMin}
+                max={fmt.pageMax}
+                step={5}
+                value={effectivePages}
+                onChange={(e) => setTargetPages(Number(e.target.value))}
+                className="flex-1 accent-[var(--color-accent)]"
+              />
+              <input
+                type="number"
+                min={fmt.pageMin}
+                max={fmt.pageMax}
+                value={effectivePages}
+                onChange={(e) => setTargetPages(Number(e.target.value))}
+                className="h-9 w-20 rounded-md border border-[var(--color-border)] px-2 text-sm bg-[var(--color-bg-elevated)] text-center"
+              />
+              <span className="text-sm text-[var(--color-fg-muted)]">
+                páginas
+              </span>
+            </div>
+            <div className="flex items-center justify-between mt-3 text-xs">
+              <span className="text-[var(--color-fg-subtle)]">
+                {fmt.pageMin}
+              </span>
+              <span className="text-[var(--color-fg-subtle)]">
+                {fmt.pageMax}
+              </span>
+            </div>
+
+            {totalWords && (
+              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-md bg-[var(--color-bg-elevated)] border border-[var(--color-border)] px-3 py-2">
+                  <div className="text-[10px] uppercase tracking-wider text-[var(--color-fg-subtle)] font-semibold">
+                    Total estimado
+                  </div>
+                  <div className="font-semibold">
+                    ~{totalWords.toLocaleString("es-MX")} palabras
+                  </div>
+                  <div className="text-[11px] text-[var(--color-fg-subtle)]">
+                    {fmt.wordsPerPage} palabras/página
+                  </div>
+                </div>
+                <div className="rounded-md bg-[var(--color-bg-elevated)] border border-[var(--color-border)] px-3 py-2">
+                  <div className="text-[10px] uppercase tracking-wider text-[var(--color-fg-subtle)] font-semibold">
+                    Tiempo de escritura
+                  </div>
+                  <div className="font-semibold">
+                    {estimateMonths(totalWords)} meses
+                  </div>
+                  <div className="text-[11px] text-[var(--color-fg-subtle)]">
+                    a 500 palabras/día
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!validation.ok && (
+              <div
+                className={`mt-3 text-xs rounded-md px-3 py-2 ${
+                  validation.severity === "error"
+                    ? "bg-red-50 text-red-800 border border-red-200"
+                    : "bg-amber-50 text-amber-800 border border-amber-200"
+                }`}
+              >
+                {validation.severity === "error" ? "⚠ " : "ℹ "}
+                {validation.message}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <Footer
+        onPrev={onPrev}
+        onNext={() => {
+          // Aplicar defaults al pasar al siguiente paso si nada se tocó.
+          if (!format) setFormat(effectiveFormat);
+          if (!targetPages) setTargetPages(effectivePages);
+          onNext();
+        }}
+        nextDisabled={!canContinue}
+      />
+    </div>
+  );
+}
+
+function estimateMonths(totalWords: number): string {
+  const days = totalWords / 500;
+  const months = days / 22; // ~22 días hábiles
+  if (months < 1) return "<1";
+  if (months < 12) return months.toFixed(1).replace(/\.0$/, "");
+  return Math.round(months).toString();
 }
 
 function FileDropZone({

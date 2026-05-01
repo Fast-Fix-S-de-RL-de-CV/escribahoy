@@ -41,7 +41,11 @@ import type { OutlineNode, Project, AIMessage, User } from "@/lib/schema";
 import { cn, formatRelative, plural, wordCount } from "@/lib/utils";
 import { RichEditor } from "@/components/rich-editor";
 import { getMissingCoreSettings } from "@/lib/project-validation";
-import { getFormat } from "@/lib/book-formats";
+import {
+  getFormat,
+  validatePages,
+  estimatedTotalWords,
+} from "@/lib/book-formats";
 import { CanvasPreview } from "@/components/canvas-preview";
 import { AlertTriangleIcon } from "lucide-react";
 
@@ -78,6 +82,15 @@ export function ProjectWorkspace({
     [project]
   );
 
+  const pagesValidation = useMemo(
+    () => validatePages(project.format, project.targetPages),
+    [project.format, project.targetPages]
+  );
+  const pagesWarning =
+    !pagesValidation.ok && pagesValidation.severity === "error"
+      ? pagesValidation.message
+      : null;
+
   const activeNode = useMemo(
     () => nodes.find((n) => n.id === activeNodeId) ?? null,
     [nodes, activeNodeId]
@@ -113,6 +126,23 @@ export function ProjectWorkspace({
         onOpenSettings={() => setShowSettings(true)}
         onOpenHistory={() => setShowHistory(true)}
       />
+      {pagesWarning && (
+        <div className="bg-red-50 border-b border-red-200 px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-start gap-2 text-sm text-red-900 min-w-0">
+            <AlertTriangleIcon className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <span>
+              <strong>Formato y páginas incoherentes.</strong> {pagesWarning}
+            </span>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => setShowSettings(true)}
+            variant="danger"
+          >
+            Ajustar
+          </Button>
+        </div>
+      )}
       {missingCore.length > 0 && (
         <div className="bg-amber-50 border-b border-amber-200 px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-start gap-2 text-sm text-amber-900 min-w-0">
@@ -271,14 +301,24 @@ function Topbar({
             {project.type === "book" ? "Libro" : "Curso"}
             {(() => {
               const fmt = getFormat(project.format);
-              return fmt ? (
+              if (!fmt) return null;
+              const tw = estimatedTotalWords(project.format, project.targetPages);
+              return (
                 <>
                   {" · "}
                   <span title={fmt.description}>
-                    {fmt.label} · {fmt.widthIn}×{fmt.heightIn}″
+                    {fmt.label} · {fmt.widthCm}×{fmt.heightCm}cm
                   </span>
+                  {project.targetPages ? (
+                    <>
+                      {" · "}
+                      <span title={tw ? `~${tw.toLocaleString("es-MX")} palabras totales` : ""}>
+                        {project.targetPages} pp
+                      </span>
+                    </>
+                  ) : null}
                 </>
-              ) : null;
+              );
             })()}
             {" · actualizado "}
             {formatRelative(project.updatedAt)}

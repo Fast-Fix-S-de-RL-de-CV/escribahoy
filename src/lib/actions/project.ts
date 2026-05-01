@@ -15,10 +15,13 @@ import {
 import { requireUser } from "@/lib/auth";
 import { getAnthropic, MODEL, SYSTEM_BASE } from "@/lib/anthropic";
 import { logChange } from "@/lib/change-log";
+import { getFormat } from "@/lib/book-formats";
 
 const CreateProjectSchema = z.object({
   type: z.enum(["book", "course"]),
   kindDetail: z.string().trim().optional(),
+  format: z.string().trim().optional(),
+  targetPages: z.number().int().positive().optional(),
   title: z.string().min(2).trim(),
   description: z.string().trim().optional(),
   audience: z.string().trim().optional(),
@@ -29,6 +32,8 @@ const CreateProjectSchema = z.object({
 export async function createProject(input: {
   type: "book" | "course";
   kindDetail?: string;
+  format?: string;
+  targetPages?: number;
   title: string;
   description?: string;
   audience?: string;
@@ -44,6 +49,8 @@ export async function createProject(input: {
     userId: user.id,
     type: parsed.type,
     kindDetail: parsed.kindDetail,
+    format: parsed.format,
+    targetPages: parsed.targetPages,
     title: parsed.title,
     description: parsed.description,
     audience: parsed.audience,
@@ -59,6 +66,7 @@ const UpdateProjectSchema = z.object({
   id: z.string(),
   kindDetail: z.string().trim().optional(),
   format: z.string().trim().optional().nullable(),
+  targetPages: z.number().int().positive().optional().nullable(),
   title: z.string().trim().min(2).optional(),
   subtitle: z.string().trim().optional().nullable(),
   description: z.string().trim().optional().nullable(),
@@ -124,10 +132,44 @@ export async function generateOutlineForProject(projectId: string) {
     : "";
 
   const isBook = project.type === "book";
+
+  // Calcular palabras totales y distribución según target_pages.
+  const fmt = getFormat(project.format);
+  const targetPages = project.targetPages ?? null;
+  const totalWords =
+    fmt && targetPages ? fmt.wordsPerPage * targetPages : null;
+
+  // Sugerencia de capítulos según extensión.
+  let chapterCount = isBook ? 10 : 8;
+  let sectionsPerChapter = 4;
+  if (totalWords) {
+    if (totalWords < 25000) {
+      chapterCount = isBook ? 6 : 5;
+      sectionsPerChapter = 3;
+    } else if (totalWords < 50000) {
+      chapterCount = isBook ? 8 : 6;
+      sectionsPerChapter = 3;
+    } else if (totalWords < 90000) {
+      chapterCount = isBook ? 10 : 8;
+      sectionsPerChapter = 4;
+    } else if (totalWords < 150000) {
+      chapterCount = isBook ? 12 : 10;
+      sectionsPerChapter = 4;
+    } else {
+      chapterCount = isBook ? 15 : 12;
+      sectionsPerChapter = 5;
+    }
+  }
+  const wordsPerSection = totalWords
+    ? Math.round(totalWords / (chapterCount * sectionsPerChapter))
+    : isBook
+      ? 800
+      : 400;
+
   const prompt = `Estoy creando ${isBook ? "un libro" : "un curso"} con estos datos:
 
 Título: ${project.title}
-${project.kindDetail ? `Tipo (${isBook ? "género" : "formato"}): ${project.kindDetail}\n` : ""}${project.description ? `Descripción: ${project.description}\n` : ""}${project.audience ? `Audiencia: ${project.audience}\n` : ""}${project.tone ? `Tono: ${project.tone}\n` : ""}${project.perspective ? `Persona/punto de vista: ${project.perspective}\n` : ""}${project.formality ? `Formalidad: ${project.formality}\n` : ""}${project.styleNotes ? `Notas de estilo: ${project.styleNotes}\n` : ""}${project.glossary ? `Glosario obligatorio: ${project.glossary}\n` : ""}${project.avoidTerms ? `Términos a evitar: ${project.avoidTerms}\n` : ""}${project.goal ? `Meta del proyecto: ${project.goal}\n` : ""}
+${project.kindDetail ? `Tipo (${isBook ? "género" : "formato"}): ${project.kindDetail}\n` : ""}${fmt ? `Formato físico: ${fmt.label} (${fmt.widthIn}×${fmt.heightIn}″ / ${fmt.widthCm}×${fmt.heightCm}cm)\n` : ""}${targetPages ? `Páginas objetivo: ${targetPages}\n` : ""}${totalWords ? `Palabras totales aproximadas: ${totalWords.toLocaleString("es-MX")} (≈ ${fmt?.wordsPerPage} palabras/página)\n` : ""}${project.description ? `Descripción: ${project.description}\n` : ""}${project.audience ? `Audiencia: ${project.audience}\n` : ""}${project.tone ? `Tono: ${project.tone}\n` : ""}${project.perspective ? `Persona/punto de vista: ${project.perspective}\n` : ""}${project.formality ? `Formalidad: ${project.formality}\n` : ""}${project.styleNotes ? `Notas de estilo: ${project.styleNotes}\n` : ""}${project.glossary ? `Glosario obligatorio: ${project.glossary}\n` : ""}${project.avoidTerms ? `Términos a evitar: ${project.avoidTerms}\n` : ""}${project.goal ? `Meta del proyecto: ${project.goal}\n` : ""}
 
 ${knowledgeContext ? `Material de referencia (knowledge base):\n${knowledgeContext}\n\n` : ""}Genera un outline COMPLETO adecuado al tipo "${project.kindDetail ?? (isBook ? "libro general" : "curso general")}". Reglas según formato:
 - Para una novela / cuentos / poesía: capítulos por escenas, arcos, voz narrativa.
@@ -137,7 +179,7 @@ ${knowledgeContext ? `Material de referencia (knowledge base):\n${knowledgeConte
 - Para curso bootcamp / técnico: fundamentos → práctica → proyecto final.
 - Para masterclass / fundamentos: claridad conceptual, no exhaustividad.
 
-Tamaño aproximado: ${isBook ? "8-12 capítulos" : "6-10 módulos"}, cada uno con 3-5 ${isBook ? "secciones" : "lecciones"}.
+Tamaño exacto requerido: ${chapterCount} ${isBook ? "capítulos" : "módulos"}, cada uno con ${sectionsPerChapter} ${isBook ? "secciones" : "lecciones"}.${totalWords ? ` Cada ${isBook ? "sección" : "lección"} debe rondar ${wordsPerSection} palabras (no agregues esto al JSON, sólo úsalo para calibrar la profundidad y especificidad de los títulos y resúmenes).` : ""}
 
 Responde ÚNICAMENTE con un JSON válido (sin markdown, sin texto antes ni después) con este formato exacto:
 

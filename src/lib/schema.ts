@@ -34,6 +34,7 @@ export const projects = sqliteTable("projects", {
   goal: text("goal"),
   language: text("language").default("es").notNull(),
   format: text("format"),
+  targetPages: integer("target_pages"),
   perspective: text("perspective"),
   formality: text("formality"),
   styleNotes: text("style_notes"),

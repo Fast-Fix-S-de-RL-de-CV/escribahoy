@@ -17,7 +17,14 @@ import {
 } from "@/lib/actions/project";
 import { BOOK_KINDS, COURSE_KINDS } from "@/lib/project-kinds";
 import { getMissingCoreSettings } from "@/lib/project-validation";
-import { BOOK_FORMATS, defaultFormatFor } from "@/lib/book-formats";
+import {
+  BOOK_FORMATS,
+  defaultFormatFor,
+  defaultPagesFor,
+  validatePages,
+  estimatedTotalWords,
+  getFormat,
+} from "@/lib/book-formats";
 import { CanvasPreview } from "@/components/canvas-preview";
 import type { Project } from "@/lib/schema";
 
@@ -60,6 +67,9 @@ export function ProjectSettings({
     description: project.description ?? "",
     kindDetail: project.kindDetail ?? "",
     format: project.format ?? defaultFormatFor(project.kindDetail),
+    targetPages:
+      project.targetPages ??
+      defaultPagesFor(project.format ?? defaultFormatFor(project.kindDetail)),
     audience: project.audience ?? "",
     tone: project.tone ?? "",
     goal: project.goal ?? "",
@@ -80,7 +90,13 @@ export function ProjectSettings({
     audience: form.audience || null,
     tone: form.tone || null,
     perspective: form.perspective || null,
+    format: form.format || null,
+    targetPages: form.targetPages || null,
   });
+
+  const pagesValidation = validatePages(form.format, form.targetPages);
+  const totalWords = estimatedTotalWords(form.format, form.targetPages);
+  const fmtSelected = getFormat(form.format);
 
   function update<K extends keyof typeof form>(key: K, val: (typeof form)[K]) {
     setForm((f) => ({ ...f, [key]: val }));
@@ -97,6 +113,7 @@ export function ProjectSettings({
           description: form.description || null,
           kindDetail: form.kindDetail || undefined,
           format: form.format || null,
+          targetPages: form.targetPages || null,
           audience: form.audience || null,
           tone: form.tone || null,
           goal: form.goal || null,
@@ -263,40 +280,107 @@ export function ProjectSettings({
 
           {isBook && (
             <Section
-              title="Formato de impresión"
-              help="El tamaño físico del libro impreso. Sugerimos uno según el tipo elegido."
+              title="Formato y extensión"
+              required
+              help="Tamaño físico del libro y páginas objetivo. La IA calibra el outline en base a esto."
             >
-              <div className="grid grid-cols-2 gap-2">
-                {BOOK_FORMATS.map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => update("format", f.id)}
-                    className={`text-left rounded-md border p-2.5 transition-all ${
-                      form.format === f.id
-                        ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
-                        : "border-[var(--color-border)] hover:border-[var(--color-border-strong)]"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <CanvasPreview
-                        widthIn={f.widthIn}
-                        heightIn={f.heightIn}
-                        previewHeight={32}
-                        selected={form.format === f.id}
-                      />
-                      <div className="min-w-0">
-                        <div className="text-xs font-medium truncate">
-                          {f.label}
-                        </div>
-                        <div className="text-[10px] text-[var(--color-fg-subtle)]">
-                          {f.widthIn}×{f.heightIn}″ · {f.widthMm}×{f.heightMm}mm
+              <div>
+                <Label>
+                  Formato de impresión <RequiredMark />
+                </Label>
+                <div className="grid grid-cols-1 gap-2 mt-2">
+                  {BOOK_FORMATS.map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => update("format", f.id)}
+                      className={`text-left rounded-md border p-2.5 transition-all ${
+                        form.format === f.id
+                          ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
+                          : "border-[var(--color-border)] hover:border-[var(--color-border-strong)]"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <CanvasPreview
+                          widthIn={f.widthIn}
+                          heightIn={f.heightIn}
+                          previewHeight={36}
+                          selected={form.format === f.id}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-medium truncate">
+                            {f.label}
+                          </div>
+                          <div className="text-[11px] text-[var(--color-fg-muted)] mt-0.5">
+                            {f.widthIn}×{f.heightIn}″ · {f.widthCm}×{f.heightCm}cm ·{" "}
+                            {f.widthMm}×{f.heightMm}mm
+                          </div>
+                          <div className="text-[10px] text-[var(--color-fg-subtle)]">
+                            Ideal: {f.pageSweetMin}–{f.pageSweetMax} páginas
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </button>
-                ))}
+                    </button>
+                  ))}
+                </div>
               </div>
+
+              {fmtSelected && (
+                <div className="mt-1">
+                  <Label>
+                    Páginas objetivo <RequiredMark />
+                  </Label>
+                  <p className="text-xs text-[var(--color-fg-muted)] mb-2">
+                    {fmtSelected.label} acepta{" "}
+                    <strong>{fmtSelected.pageMin}-{fmtSelected.pageMax}</strong>.
+                    Lo ideal: {fmtSelected.pageSweetMin}-{fmtSelected.pageSweetMax}.
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range"
+                      min={fmtSelected.pageMin}
+                      max={fmtSelected.pageMax}
+                      step={5}
+                      value={form.targetPages || fmtSelected.pageSweetMin}
+                      onChange={(e) =>
+                        update("targetPages", Number(e.target.value))
+                      }
+                      className="flex-1 accent-[var(--color-accent)]"
+                    />
+                    <input
+                      type="number"
+                      min={fmtSelected.pageMin}
+                      max={fmtSelected.pageMax}
+                      value={form.targetPages || ""}
+                      onChange={(e) =>
+                        update("targetPages", Number(e.target.value))
+                      }
+                      className="h-9 w-20 rounded-md border border-[var(--color-border)] px-2 text-sm bg-[var(--color-bg-elevated)] text-center"
+                    />
+                    <span className="text-xs text-[var(--color-fg-muted)]">
+                      páginas
+                    </span>
+                  </div>
+                  {totalWords && (
+                    <div className="text-xs text-[var(--color-fg-muted)] mt-2">
+                      ≈ <strong>{totalWords.toLocaleString("es-MX")}</strong>{" "}
+                      palabras totales (~{fmtSelected.wordsPerPage} palabras/página)
+                    </div>
+                  )}
+                  {!pagesValidation.ok && (
+                    <div
+                      className={`mt-2 text-xs rounded-md px-3 py-2 ${
+                        pagesValidation.severity === "error"
+                          ? "bg-red-50 text-red-800 border border-red-200"
+                          : "bg-amber-50 text-amber-800 border border-amber-200"
+                      }`}
+                    >
+                      {pagesValidation.severity === "error" ? "⚠ " : "ℹ "}
+                      {pagesValidation.message}
+                    </div>
+                  )}
+                </div>
+              )}
             </Section>
           )}
 

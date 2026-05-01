@@ -126,6 +126,7 @@ function initSchema(db: Database.Database) {
   const migrations: Array<{ table: string; column: string; ddl: string }> = [
     { table: "projects", column: "kind_detail", ddl: "TEXT" },
     { table: "projects", column: "format", ddl: "TEXT" },
+    { table: "projects", column: "target_pages", ddl: "INTEGER" },
     { table: "projects", column: "perspective", ddl: "TEXT" },
     { table: "projects", column: "formality", ddl: "TEXT" },
     { table: "projects", column: "style_notes", ddl: "TEXT" },
