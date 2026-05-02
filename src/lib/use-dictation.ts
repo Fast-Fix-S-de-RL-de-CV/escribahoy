@@ -63,12 +63,19 @@ export function useDictation({
   const startedAtRef = useRef<number | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onTranscriptRef = useRef(onTranscript);
+  // Bandera explícita de "el usuario quiere seguir escuchando" — más
+  // confiable que mirar status (que el closure de onend captura estancado
+  // en su valor inicial). Crítico para reiniciar el reconocimiento cuando
+  // Chrome corta por silencio largo.
+  const wantListeningRef = useRef(false);
+
   // Mantener el callback actualizado sin recrear el recognition.
   useEffect(() => {
     onTranscriptRef.current = onTranscript;
   }, [onTranscript]);
 
   const stop = useCallback(() => {
+    wantListeningRef.current = false;
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
@@ -91,6 +98,7 @@ export function useDictation({
     }
     setErrorMsg(null);
     finalTranscriptRef.current = "";
+    wantListeningRef.current = true;
 
     const rec = new Ctor();
     rec.continuous = true; // No corta entre frases — clave para conversaciones largas.
@@ -122,8 +130,8 @@ export function useDictation({
     };
 
     rec.onerror = (e: SpeechRecognitionErrorEvent) => {
-      // "no-speech" se dispara seguido cuando hay silencio largo en continuous.
-      // No tratarlo como error fatal — solo seguimos.
+      // "no-speech" y "aborted" se disparan seguido durante silencios — no
+      // tratarlos como fatal y dejar que onend se encargue del reinicio.
       if (e.error === "no-speech" || e.error === "aborted") return;
       setStatus("error");
       const map: Record<string, string> = {
@@ -133,18 +141,32 @@ export function useDictation({
         "audio-capture": "No se pudo acceder al micrófono",
       };
       setErrorMsg(map[e.error] ?? `Error: ${e.error}`);
+      wantListeningRef.current = false;
       stop();
     };
 
     rec.onend = () => {
-      // En continuous, esto puede dispararse si el navegador corta la sesión.
-      // Si seguimos en "listening", lo reiniciamos para no perder al usuario.
-      if (status === "listening" && recognitionRef.current === rec) {
+      // En continuous, esto se dispara si el navegador corta la sesión por
+      // silencio largo (~5-10s en Chrome). Reiniciamos automáticamente
+      // mientras el usuario aún quiera escuchar (wantListeningRef).
+      if (wantListeningRef.current && recognitionRef.current === rec) {
         try {
           rec.start();
         } catch {
-          setStatus("idle");
+          // Si Chrome se queja porque ya está corriendo, reintentar en un
+          // tick. Si falla por permiso, lo manejará onerror.
+          setTimeout(() => {
+            if (wantListeningRef.current && recognitionRef.current === rec) {
+              try {
+                rec.start();
+              } catch {
+                setStatus("idle");
+              }
+            }
+          }, 100);
         }
+      } else {
+        setStatus("idle");
       }
     };
 
@@ -161,16 +183,18 @@ export function useDictation({
         }
       }, 200);
     } catch (err) {
+      wantListeningRef.current = false;
       setStatus("error");
       setErrorMsg(
         err instanceof Error ? err.message : "no se pudo iniciar el dictado"
       );
     }
-  }, [lang, status, stop]);
+  }, [lang, stop]);
 
   // Cleanup al desmontar.
   useEffect(() => {
     return () => {
+      wantListeningRef.current = false;
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
