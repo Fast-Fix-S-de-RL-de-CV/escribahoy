@@ -28,6 +28,17 @@ type Cmd =
   | "ol"
   | "quote";
 
+function isHtmlEmpty(html: string | null | undefined): boolean {
+  if (!html) return true;
+  // Strip tags y entidades para ver si hay texto real.
+  const text = html
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&[a-z]+;/g, " ")
+    .trim();
+  return text.length === 0;
+}
+
 const DECORATION_LABELS: Record<DecorationKind, { label: string; hint: string }> = {
   pullquote: {
     label: "Frase destacada",
@@ -91,13 +102,18 @@ export function RichEditor({
   aiContext?: AiContext;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [empty, setEmpty] = useState(!initialHtml || initialHtml === "<p></p>");
+  const [empty, setEmpty] = useState(() => isHtmlEmpty(initialHtml));
   const [showDecoMenu, setShowDecoMenu] = useState(false);
   const [decoModal, setDecoModal] = useState<DecorationKind | null>(null);
 
   useEffect(() => {
     if (ref.current && ref.current.innerHTML !== initialHtml) {
       ref.current.innerHTML = initialHtml || "";
+      // Re-evaluar empty cada vez que cambia el initialHtml — clave para que
+      // el placeholder no se muestre encima del contenido cargado al navegar
+      // entre secciones.
+      const text = ref.current.innerText.trim();
+      setEmpty(text.length === 0);
     }
   }, [initialHtml]);
 
