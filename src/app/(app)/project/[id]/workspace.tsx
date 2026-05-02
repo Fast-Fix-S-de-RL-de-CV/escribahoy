@@ -25,14 +25,13 @@ import {
   Settings2Icon,
   HistoryIcon,
   MicIcon,
-  MicOffIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Progress } from "@/components/ui/card";
 import { ProjectSettings } from "@/components/project-settings";
 import { HistoryDrawer } from "@/components/history-drawer";
 import { CircularSpinner } from "@/components/circular-spinner";
-import { useDictation } from "@/lib/use-dictation";
+import { DictationModal } from "@/components/dictation-modal";
 import { logoutAction } from "@/lib/actions/auth";
 import {
   addNode,
@@ -1426,7 +1425,7 @@ function AIPanel({
   const [scope, setScope] = useState<"section" | "global">(
     activeNode ? "section" : "global"
   );
-  const dictationBaseRef = useRef("");
+  const [dictationModalOpen, setDictationModalOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Mapea el language del proyecto al BCP-47 que usa Web Speech API.
@@ -1437,24 +1436,9 @@ function AIPanel({
     return `${lang}-MX`;
   })();
 
-  const dictation = useDictation({
-    lang: dictationLang,
-    onTranscript: (finalText, interimText) => {
-      // Combinamos lo que el usuario YA tenía escrito antes de empezar a
-      // dictar (dictationBaseRef) + el final acumulado del dictado + el
-      // interim (lo que la IA está oyendo en este momento).
-      const sep =
-        dictationBaseRef.current && !/\s$/.test(dictationBaseRef.current)
-          ? " "
-          : "";
-      const combined =
-        dictationBaseRef.current +
-        sep +
-        finalText +
-        (interimText ? (finalText ? " " : "") + interimText : "");
-      setInput(combined);
-    },
-  });
+  const dictationSupported =
+    typeof window !== "undefined" &&
+    ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
 
   // Si el usuario navega a un estado SIN sección activa y estaba en
   // "section", forzar a "global" porque no aplica. Pero NO resetear
@@ -1497,9 +1481,7 @@ function AIPanel({
     const text = input.trim();
     if (!text || streaming) return;
     if (aiBusy && aiBusy !== "chat") return;
-    if (dictation.isListening) dictation.stop();
     setInput("");
-    dictationBaseRef.current = "";
     setAiBusy("chat");
     const tempUser: AIMessage = {
       id: "tmp-u-" + Date.now(),
@@ -1814,26 +1796,6 @@ function AIPanel({
         </div>
 
         <div className="p-3">
-        {dictation.isListening && (
-          <div className="mb-2 px-3 py-2 rounded-md bg-red-50 border border-red-200 flex items-center gap-2 text-xs text-red-900">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-60"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-600"></span>
-            </span>
-            <span className="font-medium">Escuchando...</span>
-            <span className="font-mono text-red-700">
-              {dictation.elapsedSeconds}s
-            </span>
-            <span className="text-red-700/70 ml-auto">
-              Habla con calma · click al mic para terminar
-            </span>
-          </div>
-        )}
-        {dictation.errorMsg && (
-          <div className="mb-2 px-3 py-1.5 rounded-md bg-red-50 border border-red-200 text-xs text-red-900">
-            🎤 {dictation.errorMsg}
-          </div>
-        )}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -1843,20 +1805,11 @@ function AIPanel({
         >
           <textarea
             value={input}
-            onChange={(e) => {
-              setInput(e.target.value);
-              // Si el usuario edita manualmente mientras NO está dictando,
-              // actualizamos la base para futuras dictadas.
-              if (!dictation.isListening) {
-                dictationBaseRef.current = e.target.value;
-              }
-            }}
+            onChange={(e) => setInput(e.target.value)}
             placeholder={
-              dictation.isListening
-                ? "🎤 Escuchando... habla y voy escribiendo"
-                : streaming
-                  ? "Generando... puedes ir escribiendo lo siguiente"
-                  : "Pregunta o cuéntame una idea..."
+              streaming
+                ? "Generando... puedes ir escribiendo lo siguiente"
+                : "Pregunta o cuéntame una idea..."
             }
             rows={2}
             onKeyDown={(e) => {
@@ -1867,60 +1820,54 @@ function AIPanel({
             }}
             className="flex-1 text-sm rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
           />
-          {dictation.isSupported && (
-            <Button
-              type="button"
-              size="icon"
-              variant={dictation.isListening ? "danger" : "outline"}
-              onClick={() => {
-                if (dictation.isListening) {
-                  dictation.stop();
-                } else {
-                  // Snapshot del input actual como base — el dictado se va
-                  // agregando a lo que ya estaba escrito.
-                  dictationBaseRef.current = input;
-                  dictation.start();
-                }
-              }}
-              disabled={streaming || (!!aiBusy && aiBusy !== "chat")}
-              title={
-                dictation.isListening
-                  ? "Terminar dictado"
-                  : "Dictar por voz"
-              }
-              className={dictation.isListening ? "animate-pulse-soft" : ""}
-            >
-              {dictation.isListening ? (
-                <MicOffIcon className="h-4 w-4" />
-              ) : (
+          <div className="flex flex-col gap-1.5 flex-shrink-0">
+            {dictationSupported && (
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                onClick={() => setDictationModalOpen(true)}
+                disabled={streaming || (!!aiBusy && aiBusy !== "chat")}
+                title="Dictar por voz (abre editor)"
+              >
                 <MicIcon className="h-4 w-4" />
+              </Button>
+            )}
+            <Button
+              type="submit"
+              size="icon"
+              disabled={
+                !input.trim() ||
+                streaming ||
+                (!!aiBusy && aiBusy !== "chat")
+              }
+              title={
+                streaming
+                  ? `Escribahoy está trabajando... ${elapsedSeconds}s`
+                  : aiBusy && aiBusy !== "chat"
+                    ? "Espera a que termine la otra acción de IA"
+                    : "Enviar"
+              }
+              className={streaming || aiBusy ? "cursor-wait" : ""}
+            >
+              {streaming ? (
+                <CircularSpinner size={16} className="text-white" />
+              ) : (
+                <SendHorizontalIcon className="h-4 w-4" />
               )}
             </Button>
-          )}
-          <Button
-            type="submit"
-            size="icon"
-            disabled={
-              !input.trim() ||
-              streaming ||
-              (!!aiBusy && aiBusy !== "chat")
-            }
-            title={
-              streaming
-                ? `Escribahoy está trabajando... ${elapsedSeconds}s`
-                : aiBusy && aiBusy !== "chat"
-                  ? "Espera a que termine la otra acción de IA"
-                  : "Enviar"
-            }
-            className={streaming || aiBusy ? "cursor-wait" : ""}
-          >
-            {streaming ? (
-              <CircularSpinner size={16} className="text-white" />
-            ) : (
-              <SendHorizontalIcon className="h-4 w-4" />
-            )}
-          </Button>
+          </div>
         </form>
+        <DictationModal
+          open={dictationModalOpen}
+          initialText={input}
+          language={dictationLang}
+          onClose={() => setDictationModalOpen(false)}
+          onInsert={(text) => {
+            setInput(text);
+            setDictationModalOpen(false);
+          }}
+        />
         <p className="text-[10px] text-[var(--color-fg-subtle)] mt-1.5 flex items-center justify-between">
           <span>Enter para enviar · Shift+Enter para nueva línea</span>
           {streaming && (
