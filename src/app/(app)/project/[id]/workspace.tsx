@@ -100,6 +100,8 @@ export function ProjectWorkspace({
   }, [suggestions]);
   const [showSettings, setShowSettings] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  // Lock global de operaciones IA — solo una a la vez.
+  const [aiBusy, setAiBusy] = useState<string | null>(null);
   // Sync server-side updates back into local state when they come via router.refresh().
   useEffect(() => setNodes(initialNodes), [initialNodes]);
 
@@ -259,6 +261,8 @@ export function ProjectWorkspace({
           allNodes={nodes}
           numbering={numbering}
           suggestions={suggestions}
+          aiBusy={aiBusy}
+          setAiBusy={setAiBusy}
           onUpdate={(patch) => activeNode && applyNodeUpdate(activeNode.id, patch)}
           onSuggestionsChange={setSuggestions}
           onSelectNode={setActiveNodeId}
@@ -267,6 +271,8 @@ export function ProjectWorkspace({
           project={project}
           activeNode={activeNode}
           messages={messages}
+          aiBusy={aiBusy}
+          setAiBusy={setAiBusy}
           onMessages={setMessages}
           onOutlineChanged={() => router.refresh()}
         />
@@ -752,6 +758,8 @@ function SectionEditor({
   allNodes,
   numbering,
   suggestions,
+  aiBusy,
+  setAiBusy,
   onUpdate,
   onSuggestionsChange,
   onSelectNode,
@@ -761,6 +769,8 @@ function SectionEditor({
   allNodes: OutlineNode[];
   numbering: Record<string, string | null>;
   suggestions: Suggestion[];
+  aiBusy: string | null;
+  setAiBusy: (key: string | null) => void;
   onUpdate: (patch: Partial<OutlineNode>) => void;
   onSuggestionsChange: (next: Suggestion[]) => void;
   onSelectNode: (id: string) => void;
@@ -805,8 +815,10 @@ function SectionEditor({
 
   async function redistributeChapter() {
     if (!node) return;
+    if (aiBusy && aiBusy !== "redistribute") return;
     setRedistributing(true);
     setRedistributeError(null);
+    setAiBusy("redistribute");
     try {
       const res = await fetch("/api/ai/redistribute-chapter", {
         method: "POST",
@@ -822,6 +834,7 @@ function SectionEditor({
       setRedistributeError(e instanceof Error ? e.message : "error");
     } finally {
       setRedistributing(false);
+      setAiBusy(null);
     }
   }
 
@@ -879,7 +892,9 @@ function SectionEditor({
 
   async function handleGenerateScript() {
     if (!node) return;
+    if (aiBusy && aiBusy !== "script") return;
     setGeneratingScript(true);
+    setAiBusy("script");
     try {
       const { script } = await generateScriptForLesson({
         projectId: project.id,
@@ -890,6 +905,7 @@ function SectionEditor({
       alert(e instanceof Error ? e.message : "no se pudo generar el guión");
     } finally {
       setGeneratingScript(false);
+      setAiBusy(null);
     }
   }
 
@@ -1010,8 +1026,15 @@ function SectionEditor({
                   <Button
                     size="sm"
                     onClick={redistributeChapter}
-                    disabled={redistributing}
+                    disabled={
+                      redistributing || (!!aiBusy && aiBusy !== "redistribute")
+                    }
                     className="bg-amber-600 hover:bg-amber-700 text-white"
+                    title={
+                      aiBusy && aiBusy !== "redistribute"
+                        ? "Espera a que termine la otra acción de IA"
+                        : ""
+                    }
                   >
                     {redistributing ? (
                       <>
@@ -1033,6 +1056,8 @@ function SectionEditor({
         <SuggestionsBox
           projectId={project.id}
           nodeId={node.id}
+          aiBusy={aiBusy}
+          setAiBusy={setAiBusy}
           autoSuggest={
             node.kind === "section" || node.kind === "lesson"
           }
@@ -1089,8 +1114,18 @@ function SectionEditor({
               size="sm"
               variant="outline"
               onClick={handleGenerateScript}
-              disabled={generatingScript || node.wordCount === 0}
-              title={node.wordCount === 0 ? "Escribe contenido primero" : ""}
+              disabled={
+                generatingScript ||
+                node.wordCount === 0 ||
+                (!!aiBusy && aiBusy !== "script")
+              }
+              title={
+                aiBusy && aiBusy !== "script"
+                  ? "Espera a que termine la otra acción de IA"
+                  : node.wordCount === 0
+                    ? "Escribe contenido primero"
+                    : ""
+              }
             >
               {generatingScript ? (
                 <>
@@ -1366,12 +1401,16 @@ function AIPanel({
   project,
   activeNode,
   messages,
+  aiBusy,
+  setAiBusy,
   onMessages,
   onOutlineChanged,
 }: {
   project: Project;
   activeNode: OutlineNode | null;
   messages: AIMessage[];
+  aiBusy: string | null;
+  setAiBusy: (key: string | null) => void;
   onMessages: (m: AIMessage[]) => void;
   onOutlineChanged: () => void;
 }) {
@@ -1386,10 +1425,15 @@ function AIPanel({
   );
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // If the user changes the active section, default scope back to section.
+  // Si el usuario navega a un estado SIN sección activa y estaba en
+  // "section", forzar a "global" porque no aplica. Pero NO resetear
+  // automáticamente cuando solo cambia de un nodo a otro — respetamos
+  // la elección manual del usuario.
   useEffect(() => {
-    setScope(activeNode ? "section" : "global");
-  }, [activeNode?.id]);
+    if (!activeNode && scope === "section") {
+      setScope("global");
+    }
+  }, [activeNode, scope]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -1421,7 +1465,9 @@ function AIPanel({
   async function send() {
     const text = input.trim();
     if (!text || streaming) return;
+    if (aiBusy && aiBusy !== "chat") return;
     setInput("");
+    setAiBusy("chat");
     const tempUser: AIMessage = {
       id: "tmp-u-" + Date.now(),
       projectId: project.id,
@@ -1541,6 +1587,7 @@ function AIPanel({
       onMessages([...messages, tempUser, tempErr]);
     } finally {
       setStreaming(false);
+      setAiBusy(null);
     }
   }
 
@@ -1761,13 +1808,19 @@ function AIPanel({
           <Button
             type="submit"
             size="icon"
-            disabled={!input.trim() || streaming}
+            disabled={
+              !input.trim() ||
+              streaming ||
+              (!!aiBusy && aiBusy !== "chat")
+            }
             title={
               streaming
                 ? `Escribahoy está trabajando... ${elapsedSeconds}s`
-                : "Enviar"
+                : aiBusy && aiBusy !== "chat"
+                  ? "Espera a que termine la otra acción de IA"
+                  : "Enviar"
             }
-            className={streaming ? "cursor-wait" : ""}
+            className={streaming || aiBusy ? "cursor-wait" : ""}
           >
             {streaming ? (
               <CircularSpinner size={16} className="text-white" />

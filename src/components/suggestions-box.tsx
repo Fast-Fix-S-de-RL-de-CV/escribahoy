@@ -18,6 +18,8 @@ export function SuggestionsBox({
   projectId,
   nodeId,
   autoSuggest,
+  aiBusy,
+  setAiBusy,
   suggestions,
   onApplied,
   onDismissed,
@@ -25,6 +27,8 @@ export function SuggestionsBox({
   projectId: string;
   nodeId?: string;
   autoSuggest?: boolean;
+  aiBusy?: string | null;
+  setAiBusy?: (key: string | null) => void;
   suggestions: Suggestion[];
   onApplied: (
     suggestionId: string,
@@ -45,7 +49,8 @@ export function SuggestionsBox({
   const applied = suggestions.filter((s) => s.status === "applied");
   const dismissed = suggestions.filter((s) => s.status === "dismissed");
 
-  // Auto-genera una sugerencia al entrar a una sección vacía sin sugerencias.
+  // Auto-genera una sugerencia al entrar a una sección sin sugerencias.
+  // No dispara si ya hay otra operación de IA corriendo.
   useEffect(() => {
     if (!autoSuggest || !nodeId) return;
     if (autoGenAttemptedFor.current.has(nodeId)) return;
@@ -56,8 +61,10 @@ export function SuggestionsBox({
       autoGenerating
     )
       return;
+    if (aiBusy && aiBusy !== "auto-suggest") return;
     autoGenAttemptedFor.current.add(nodeId);
     setAutoGenerating(true);
+    setAiBusy?.("auto-suggest");
     fetch("/api/ai/auto-suggest-section", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -77,6 +84,7 @@ export function SuggestionsBox({
       })
       .finally(() => {
         setAutoGenerating(false);
+        setAiBusy?.(null);
       });
   }, [
     autoSuggest,
@@ -85,6 +93,8 @@ export function SuggestionsBox({
     applied.length,
     dismissed.length,
     autoGenerating,
+    aiBusy,
+    setAiBusy,
     router,
   ]);
 
@@ -96,9 +106,11 @@ export function SuggestionsBox({
     return null;
 
   async function executeSuggestion(s: Suggestion) {
+    if (aiBusy && aiBusy !== "apply-suggestion") return;
     setRunning(s.id);
     setError(null);
     setLastSummary(null);
+    setAiBusy?.("apply-suggestion");
     try {
       const res = await fetch("/api/ai/apply-suggestion", {
         method: "POST",
@@ -120,6 +132,7 @@ export function SuggestionsBox({
       setError(e instanceof Error ? e.message : "error");
     } finally {
       setRunning(null);
+      setAiBusy?.(null);
     }
   }
 
@@ -200,8 +213,16 @@ export function SuggestionsBox({
               <div className="mt-3 flex items-center justify-between gap-2 flex-wrap">
                 <button
                   onClick={() => executeSuggestion(s)}
-                  disabled={running !== null}
-                  className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-md bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
+                  disabled={
+                    running !== null ||
+                    (!!aiBusy && aiBusy !== "apply-suggestion")
+                  }
+                  title={
+                    aiBusy && aiBusy !== "apply-suggestion"
+                      ? "Espera a que termine la otra acción de IA"
+                      : ""
+                  }
+                  className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-md bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {running === s.id ? (
                     <>
