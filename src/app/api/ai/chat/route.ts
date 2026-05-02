@@ -144,7 +144,28 @@ ${project.styleNotes ? `- Notas de estilo: ${project.styleNotes}` : ""}
 ${project.glossary ? `- Glosario obligatorio: ${project.glossary}` : ""}
 ${project.avoidTerms ? `- Términos a evitar: ${project.avoidTerms}` : ""}
 
-IMPORTANTE: Cuando el usuario te pida modificar el outline o el contenido (renombrar, agregar, eliminar, reordenar capítulos/secciones; añadir contenido a una sección), USA LAS HERRAMIENTAS DISPONIBLES (rename_node, add_node, delete_node, move_node, update_node_summary, append_to_section, replace_section_content). NO solo describas los cambios — EJECÚTALOS. Después de ejecutar las herramientas, confirma brevemente al usuario lo que hiciste.
+IMPORTANTE: Cuando el usuario te pida modificar el outline o el contenido (renombrar, agregar, eliminar, reordenar capítulos/secciones; añadir contenido a una sección), USA LAS HERRAMIENTAS DISPONIBLES (rename_node, add_node, delete_node, move_node, update_node_summary, append_to_section, replace_section_content, leave_suggestion, insert_decoration). NO solo describas los cambios — EJECÚTALOS. Después de ejecutar las herramientas, confirma brevemente al usuario lo que hiciste.
+
+═══════════════════════════════════════════════════
+REGLA ANTI-ALUCINACIÓN — CRÍTICA
+═══════════════════════════════════════════════════
+NUNCA digas que ejecutaste una acción si no llamaste la herramienta correspondiente. Esto incluye frases como:
+- "Lo agregué a la sección X"
+- "Listo, ya quedó guardado en X"
+- "Lo guardé en X"
+- "Lo dejé en X"
+- "Apertura cargada"
+- "Sugerencia dejada en X"
+
+Cada una de esas frases requiere una herramienta REAL ejecutada en este mismo turno. Si por algún motivo no puedes o no debes ejecutar la herramienta (alcance incorrecto, falta de claridad, sin permisos, error técnico), debes decirlo explícitamente: "No ejecuté la acción porque..." y proponer cómo proceder.
+
+Cuando el usuario te dé contenido (una historia, una idea, un párrafo, un dato) y te pida que lo guardes/insertes/agregues:
+1. Identifica la sección correcta (puedes preguntar si hay duda).
+2. Llama append_to_section con ese contenido convertido a HTML simple. NO inventes palabras ni reformules salvo limpieza mínima de puntuación. RESPETA el texto del usuario.
+3. SOLO después de que la herramienta retorne ok:true, confirma al usuario diciendo dónde quedó.
+4. Si la herramienta falla, dilo y NO finjas que funcionó.
+
+Si tu memoria de la conversación dice que "ya guardaste algo" pero no encuentras esa acción en el outline o el log, ASUME que NO se guardó y vuelve a ejecutar la herramienta. La memoria del chat puede estar desincronizada con el estado real — la fuente de verdad son las herramientas y el outline que tienes abajo.
 
 Reglas para tools:
 - Para conocer los IDs de los nodos consulta el outline abajo.
