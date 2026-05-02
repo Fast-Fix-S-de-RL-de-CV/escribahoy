@@ -84,6 +84,23 @@ export async function POST(req: NextRequest) {
 
       try {
         let outlineText = await renderOutlineWithIds(project.id);
+      let totalToolUsesThisTurn = 0;
+      // Heurística: ¿el usuario está pidiendo INSERTAR contenido en esta vuelta?
+      const userMsgLower = body.message.toLowerCase();
+      const userWordCount = body.message
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean).length;
+      const userAskedToStore =
+        userWordCount > 60 ||
+        /\b(agrega|agreguen|agregalo|insert(a|alo|alos)?|guarda(lo|los)?|p[oó]n(ga|lo|el|esta)?|mete(la|lo|esta)?|d[ée]jame esto|busca d[oó]nde|busca donde|escribe esto|anota esto|esta historia|esta idea va|incluye esto|comp[aá]rte la|toma esto)\b/i.test(
+          userMsgLower
+        );
+      // Frases que tradicionalmente significan "ya lo hice" en español.
+      const claimsToHaveDone = (text: string) =>
+        /\b(lo agregu[ée]|listo[,.\s]|ya qued[óo]|ya est[áa]|guardad[oa]|lo guard[ée]|lo dej[ée] en|lo ins?ert[ée]|lo puse en|lo a[ñn]ad[íi]|sugerencia dejada|apertura cargada|ya la a[ñn]ad[íi]|ya la met[íi]|historia agregad[ao]|historia metida)\b/i.test(
+          text
+        );
         const kb = await db
           .select()
           .from(knowledgeFiles)
@@ -208,6 +225,7 @@ ${kbContext ? `\nKnowledge base:\n${kbContext}` : ""}${activeSection}${scopeInst
           const toolUses = blocks.filter(
             (b): b is Anthropic.Messages.ToolUseBlock => b.type === "tool_use"
           );
+          totalToolUsesThisTurn += toolUses.length;
 
           if (toolUses.length === 0 || response.stop_reason !== "tool_use") {
             break;
@@ -249,6 +267,105 @@ ${kbContext ? `\nKnowledge base:\n${kbContext}` : ""}${activeSection}${scopeInst
 
           if (outlineChanged) {
             outlineText = await renderOutlineWithIds(project.id);
+          }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // GUARDRAIL ANTI-ALUCINACIÓN
+        // ═══════════════════════════════════════════════════════════════
+        // Si el usuario claramente pidió guardar contenido (mucho texto o
+        // verbos de inserción) Y la respuesta DICE haber hecho algo pero
+        // NO se ejecutó NINGUNA herramienta, forzamos un retry explícito.
+        const responseClaimsToHaveDone = claimsToHaveDone(assistantText);
+        if (
+          userAskedToStore &&
+          totalToolUsesThisTurn === 0 &&
+          responseClaimsToHaveDone
+        ) {
+          send({
+            type: "delta",
+            text: "\n\n[Detecté que dije haber hecho algo sin ejecutarlo. Corrigiendo…]\n\n",
+          });
+          assistantText +=
+            "\n\n[Detecté que dije haber hecho algo sin ejecutarlo. Corrigiendo…]\n\n";
+
+          const correctionMsg = `ATENCIÓN: en tu respuesta anterior dijiste haber ejecutado una acción (frases como "lo agregué", "listo", "guardado", etc.) pero NO llamaste ninguna herramienta. Eso es ALUCINACIÓN — el sistema lo detectó.
+
+El usuario claramente pidió guardar contenido (su mensaje fue de ${userWordCount} palabras y/o usó verbos de inserción).
+
+DEBES ejecutar AHORA la herramienta correcta:
+- Para insertar contenido literal del usuario en una sección/lección existente: append_to_section con el contenido en HTML simple (<p>, <strong>, <em>, <h3>, <ul>, <ol>, <li>).
+- Si el alcance del chat es "Esta sección" pero el contenido va a otra parte, primero pregunta dónde va; si el usuario ya dijo dónde, usa leave_suggestion en ese nodo.
+
+NO respondas con texto sin ejecutar la herramienta. NO repitas la frase de "listo" hasta que la herramienta retorne ok:true.
+
+Llama la herramienta AHORA con el contenido literal del usuario, formateado en HTML pero RESPETANDO sus palabras.`;
+
+          messages.push({ role: "assistant", content: assistantText });
+          messages.push({ role: "user", content: correctionMsg });
+
+          // Una pasada más con la corrección — máximo 2 sub-loops para
+          // permitir que la IA ejecute la tool y confirme.
+          for (let retryLoop = 0; retryLoop < 2; retryLoop++) {
+            const retryResp = await anthropic.messages.create({
+              model: MODEL,
+              max_tokens: 4096,
+              system: buildSystem(outlineText),
+              tools: TOOLS,
+              messages,
+            });
+            const retryBlocks = retryResp.content;
+            for (const block of retryBlocks) {
+              if (block.type === "text") {
+                assistantText += "\n" + block.text;
+                send({ type: "delta", text: block.text });
+              }
+            }
+            const retryToolUses = retryBlocks.filter(
+              (b): b is Anthropic.Messages.ToolUseBlock =>
+                b.type === "tool_use"
+            );
+            totalToolUsesThisTurn += retryToolUses.length;
+            if (
+              retryToolUses.length === 0 ||
+              retryResp.stop_reason !== "tool_use"
+            ) {
+              break;
+            }
+            const retryResults: Anthropic.Messages.ToolResultBlockParam[] = [];
+            for (const tu of retryToolUses) {
+              send({
+                type: "tool",
+                name: tu.name,
+                input: tu.input,
+                status: "running",
+              });
+              const result = await executeTool(
+                tu.name,
+                (tu.input ?? {}) as Record<string, unknown>,
+                ctx
+              );
+              send({
+                type: "tool",
+                name: tu.name,
+                status: result.ok ? "ok" : "error",
+                error: result.ok ? undefined : result.error,
+              });
+              if (result.ok) outlineChanged = true;
+              retryResults.push({
+                type: "tool_result",
+                tool_use_id: tu.id,
+                is_error: !result.ok,
+                content: result.ok
+                  ? JSON.stringify(result.data ?? { ok: true })
+                  : (result.error ?? "error"),
+              });
+            }
+            messages.push({ role: "assistant", content: retryBlocks });
+            messages.push({ role: "user", content: retryResults });
+            if (outlineChanged) {
+              outlineText = await renderOutlineWithIds(project.id);
+            }
           }
         }
       } catch (err) {
