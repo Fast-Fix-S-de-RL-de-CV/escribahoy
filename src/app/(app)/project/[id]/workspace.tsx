@@ -523,9 +523,16 @@ function OutlinePanel({
                 hasPendingSuggestion={pendingSuggestionsByNode[parent.id]}
                 active={activeNodeId === parent.id}
                 onClick={() => {
+                  // Click en el row: selecciona el capítulo (abre su editor).
+                  // Si estaba colapsado, lo expande para mostrar las secciones.
                   onSelect(parent.id);
-                  setCollapsed((c) => ({ ...c, [parent.id]: false }));
+                  if (isCollapsed) {
+                    setCollapsed((c) => ({ ...c, [parent.id]: false }));
+                  }
                 }}
+                onToggleCollapse={() =>
+                  setCollapsed((c) => ({ ...c, [parent.id]: !c[parent.id] }))
+                }
                 onDelete={() => onDelete(parent.id)}
                 onRename={(t) => onRename(parent.id, t)}
                 expandable
@@ -624,6 +631,7 @@ function OutlineRow({
   expandable,
   collapsed,
   onClick,
+  onToggleCollapse,
   onDelete,
   onRename,
 }: {
@@ -636,6 +644,7 @@ function OutlineRow({
   expandable?: boolean;
   collapsed?: boolean;
   onClick: () => void;
+  onToggleCollapse?: () => void;
   onDelete: () => void;
   onRename: (title: string) => void;
 }) {
@@ -660,11 +669,22 @@ function OutlineRow({
       }}
     >
       {expandable ? (
-        collapsed ? (
-          <ChevronRightIcon className="h-3.5 w-3.5 text-[var(--color-fg-subtle)] flex-shrink-0" />
-        ) : (
-          <ChevronDownIcon className="h-3.5 w-3.5 text-[var(--color-fg-subtle)] flex-shrink-0" />
-        )
+        <button
+          type="button"
+          data-no-click
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleCollapse?.();
+          }}
+          className="h-4 w-4 grid place-items-center rounded hover:bg-[var(--color-bg-subtle)] flex-shrink-0 -ml-0.5"
+          title={collapsed ? "Expandir secciones" : "Colapsar secciones"}
+        >
+          {collapsed ? (
+            <ChevronRightIcon className="h-3.5 w-3.5 text-[var(--color-fg-subtle)]" />
+          ) : (
+            <ChevronDownIcon className="h-3.5 w-3.5 text-[var(--color-fg-subtle)]" />
+          )}
+        </button>
       ) : (
         <span className={cn("h-1.5 w-1.5 rounded-full flex-shrink-0", dot)} />
       )}
