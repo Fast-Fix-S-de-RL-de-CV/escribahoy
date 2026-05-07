@@ -133,6 +133,15 @@ export async function generateOutlineForProject(projectId: string) {
 
   const isBook = project.type === "book";
 
+  // Tipos de libro donde el capítulo NO se subdivide en secciones —
+  // todo el contenido va en el cuerpo del capítulo. Esto debe coincidir
+  // con NO_SECTIONS_KINDS del workspace.
+  const NO_SECTIONS_KINDS = new Set(["novela", "cuentos", "poesia"]);
+  const flatChapters =
+    isBook &&
+    !!project.kindDetail &&
+    NO_SECTIONS_KINDS.has(project.kindDetail);
+
   // Calcular palabras totales y distribución según target_pages.
   const fmt = getFormat(project.format);
   const targetPages = project.targetPages ?? null;
@@ -141,30 +150,37 @@ export async function generateOutlineForProject(projectId: string) {
 
   // Sugerencia de capítulos según extensión.
   let chapterCount = isBook ? 10 : 8;
-  let sectionsPerChapter = 4;
+  let sectionsPerChapter = flatChapters ? 0 : 4;
   if (totalWords) {
     if (totalWords < 25000) {
-      chapterCount = isBook ? 6 : 5;
-      sectionsPerChapter = 3;
+      chapterCount = isBook ? (flatChapters ? 12 : 6) : 5;
+      sectionsPerChapter = flatChapters ? 0 : 3;
     } else if (totalWords < 50000) {
-      chapterCount = isBook ? 8 : 6;
-      sectionsPerChapter = 3;
+      chapterCount = isBook ? (flatChapters ? 18 : 8) : 6;
+      sectionsPerChapter = flatChapters ? 0 : 3;
     } else if (totalWords < 90000) {
-      chapterCount = isBook ? 10 : 8;
-      sectionsPerChapter = 4;
+      chapterCount = isBook ? (flatChapters ? 24 : 10) : 8;
+      sectionsPerChapter = flatChapters ? 0 : 4;
     } else if (totalWords < 150000) {
-      chapterCount = isBook ? 12 : 10;
-      sectionsPerChapter = 4;
+      chapterCount = isBook ? (flatChapters ? 30 : 12) : 10;
+      sectionsPerChapter = flatChapters ? 0 : 4;
     } else {
-      chapterCount = isBook ? 15 : 12;
-      sectionsPerChapter = 5;
+      chapterCount = isBook ? (flatChapters ? 40 : 15) : 12;
+      sectionsPerChapter = flatChapters ? 0 : 5;
     }
   }
-  const wordsPerSection = totalWords
-    ? Math.round(totalWords / (chapterCount * sectionsPerChapter))
-    : isBook
-      ? 800
-      : 400;
+  const wordsPerLeaf = totalWords
+    ? Math.round(
+        totalWords /
+          (flatChapters
+            ? chapterCount
+            : chapterCount * sectionsPerChapter)
+      )
+    : flatChapters
+      ? 2500
+      : isBook
+        ? 800
+        : 400;
 
   const prompt = `Estoy creando ${isBook ? "un libro" : "un curso"} con estos datos:
 
@@ -172,18 +188,33 @@ Título: ${project.title}
 ${project.kindDetail ? `Tipo (${isBook ? "género" : "formato"}): ${project.kindDetail}\n` : ""}${fmt ? `Formato físico: ${fmt.label} (${fmt.widthIn}×${fmt.heightIn}″ / ${fmt.widthCm}×${fmt.heightCm}cm)\n` : ""}${targetPages ? `Páginas objetivo: ${targetPages}\n` : ""}${totalWords ? `Palabras totales aproximadas: ${totalWords.toLocaleString("es-MX")} (≈ ${fmt?.wordsPerPage} palabras/página)\n` : ""}${project.description ? `Descripción: ${project.description}\n` : ""}${project.audience ? `Audiencia: ${project.audience}\n` : ""}${project.tone ? `Tono: ${project.tone}\n` : ""}${project.perspective ? `Persona/punto de vista: ${project.perspective}\n` : ""}${project.formality ? `Formalidad: ${project.formality}\n` : ""}${project.styleNotes ? `Notas de estilo: ${project.styleNotes}\n` : ""}${project.glossary ? `Glosario obligatorio: ${project.glossary}\n` : ""}${project.avoidTerms ? `Términos a evitar: ${project.avoidTerms}\n` : ""}${project.goal ? `Meta del proyecto: ${project.goal}\n` : ""}
 
 ${knowledgeContext ? `Material de referencia (knowledge base):\n${knowledgeContext}\n\n` : ""}Genera un outline COMPLETO adecuado al tipo "${project.kindDetail ?? (isBook ? "libro general" : "curso general")}". Reglas según formato:
-- Para una novela / cuentos / poesía: capítulos por escenas, arcos, voz narrativa.
+- Para una novela / cuentos / poesía: capítulos por escenas, arcos, voz narrativa. NO se subdividen en secciones — el contenido fluye corrido en cada capítulo.
 - Para ensayo / no-ficción narrativa: tesis, argumentos, contra-argumentos, conclusión.
 - Para auto-ayuda / negocios / manual: problema, marco, pasos accionables, cierre.
 - Para técnico / académico: fundamentos, profundización, casos, referencias.
 - Para curso bootcamp / técnico: fundamentos → práctica → proyecto final.
 - Para masterclass / fundamentos: claridad conceptual, no exhaustividad.
 
-Tamaño exacto requerido: ${chapterCount} ${isBook ? "capítulos" : "módulos"}, cada uno con ${sectionsPerChapter} ${isBook ? "secciones" : "lecciones"}.${totalWords ? ` Cada ${isBook ? "sección" : "lección"} debe rondar ${wordsPerSection} palabras (no agregues esto al JSON, sólo úsalo para calibrar la profundidad y especificidad de los títulos y resúmenes).` : ""}
+${
+  flatChapters
+    ? `Tamaño exacto requerido: ${chapterCount} capítulos SIN sub-secciones (no incluyas el campo "children", o déjalo como array vacío). Cada capítulo debe rondar ${wordsPerLeaf} palabras (calibra la profundidad de los resúmenes para esa extensión, no lo escribas en el JSON).`
+    : `Tamaño exacto requerido: ${chapterCount} ${isBook ? "capítulos" : "módulos"}, cada uno con ${sectionsPerChapter} ${isBook ? "secciones" : "lecciones"}.${totalWords ? ` Cada ${isBook ? "sección" : "lección"} debe rondar ${wordsPerLeaf} palabras (no agregues esto al JSON, sólo úsalo para calibrar la profundidad y especificidad de los títulos y resúmenes).` : ""}`
+}
 
 Responde ÚNICAMENTE con un JSON válido (sin markdown, sin texto antes ni después) con este formato exacto:
 
-{
+${
+  flatChapters
+    ? `{
+  "nodes": [
+    {
+      "kind": "chapter",
+      "title": "Título del capítulo 1",
+      "summary": "1-2 frases sobre qué cubre"
+    }
+  ]
+}`
+    : `{
   "nodes": [
     {
       "kind": "${isBook ? "chapter" : "module"}",
@@ -194,6 +225,7 @@ Responde ÚNICAMENTE con un JSON válido (sin markdown, sin texto antes ni despu
       ]
     }
   ]
+}`
 }`;
 
   const anthropic = getAnthropic();
@@ -288,9 +320,16 @@ Responde ÚNICAMENTE con un JSON válido (sin markdown, sin texto antes ni despu
       title: node.title,
       summary: node.summary,
       position: pos++,
+      // Para flat chapters el contenido vive en el cuerpo, así que el
+      // target del capítulo mismo es alto. Para libros estructurados, el
+      // capítulo solo lleva apertura corta (no le seteamos target aquí).
+      targetWords: flatChapters ? wordsPerLeaf : 0,
       createdAt: now,
       updatedAt: now,
     });
+    // Si el tipo no usa sub-secciones, ignoramos children aunque la IA
+    // los haya devuelto.
+    if (flatChapters) continue;
     let childPos = 0;
     for (const c of node.children ?? []) {
       await db.insert(outlineNodes).values({
@@ -301,7 +340,7 @@ Responde ÚNICAMENTE con un JSON válido (sin markdown, sin texto antes ni despu
         title: c.title,
         summary: c.summary,
         position: childPos++,
-        targetWords: isBook ? 800 : 400,
+        targetWords: wordsPerLeaf,
         createdAt: now,
         updatedAt: now,
       });

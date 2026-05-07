@@ -270,11 +270,27 @@ export function ProjectSettings({
               })}
             </div>
             {form.kindDetail !== (project.kindDetail ?? "") && (
-              <p className="text-xs text-[var(--color-warning)] mt-2 flex items-start gap-1.5">
-                <AlertTriangleIcon className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
-                Cambiaste el tipo. Considera regenerar el outline para que la
-                estructura coincida con el nuevo formato.
-              </p>
+              <div className="mt-2">
+                {(() => {
+                  const flatKinds = new Set(["novela", "cuentos", "poesia"]);
+                  const wasFlat =
+                    project.kindDetail !== null &&
+                    flatKinds.has(project.kindDetail);
+                  const willBeFlat = flatKinds.has(form.kindDetail);
+                  let msg = "Cambiaste el tipo. Considera regenerar el outline para que la estructura coincida con el nuevo formato.";
+                  if (!wasFlat && willBeFlat) {
+                    msg = `Cambias a un formato sin sub-secciones (capítulos corridos sin 4.1, 4.2…). Tu outline actual usa secciones — quedará inconsistente con el nuevo tipo. Regenera el outline para reestructurarlo.`;
+                  } else if (wasFlat && !willBeFlat) {
+                    msg = `Cambias a un formato CON sub-secciones (capítulos divididos en 1.1, 1.2…). Tu outline actual no las tiene — regenera el outline para que la IA proponga las sub-secciones.`;
+                  }
+                  return (
+                    <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md p-2 flex items-start gap-1.5">
+                      <AlertTriangleIcon className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                      {msg}
+                    </p>
+                  );
+                })()}
+              </div>
             )}
           </Section>
 
