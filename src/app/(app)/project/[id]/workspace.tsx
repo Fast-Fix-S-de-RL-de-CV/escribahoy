@@ -749,7 +749,9 @@ function OutlineRow({
   return (
     <div
       className={cn(
-        "group flex items-center gap-1.5 rounded-md px-2 py-1.5 cursor-pointer text-sm transition-colors",
+        // items-start (no center) para que el icono/chevron quede arriba
+        // cuando el título ocupe varias líneas.
+        "group flex items-start gap-1.5 rounded-md px-2 py-1.5 cursor-pointer text-sm transition-colors",
         active
           ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
           : "hover:bg-[var(--color-bg-muted)]"
@@ -768,7 +770,7 @@ function OutlineRow({
             e.stopPropagation();
             onToggleCollapse?.();
           }}
-          className="h-4 w-4 grid place-items-center rounded hover:bg-[var(--color-bg-subtle)] flex-shrink-0 -ml-0.5"
+          className="h-5 w-4 grid place-items-center rounded hover:bg-[var(--color-bg-subtle)] flex-shrink-0 -ml-0.5 mt-px"
           title={collapsed ? "Expandir secciones" : "Colapsar secciones"}
         >
           {collapsed ? (
@@ -778,7 +780,12 @@ function OutlineRow({
           )}
         </button>
       ) : (
-        <span className={cn("h-1.5 w-1.5 rounded-full flex-shrink-0", dot)} />
+        <span
+          className={cn(
+            "h-1.5 w-1.5 rounded-full flex-shrink-0 mt-2",
+            dot
+          )}
+        />
       )}
       {editing ? (
         <input
@@ -803,13 +810,16 @@ function OutlineRow({
           data-no-click
         />
       ) : (
-        <div className="flex-1 min-w-0 flex items-baseline gap-1.5">
-          <span className="text-[var(--color-fg-subtle)] text-xs flex-shrink-0 font-mono">
+        <div className="flex-1 min-w-0 flex items-baseline gap-1.5 leading-snug">
+          <span className="text-[var(--color-fg-subtle)] text-xs flex-shrink-0 font-mono mt-px">
             {number ?? `${index}.`}
           </span>
           <span
             className={cn(
-              "truncate",
+              // break-words permite cortar palabras largas; sin truncate
+              // el texto se va a 2-3 líneas si hace falta. Útil para
+              // ver títulos completos en el outline.
+              "break-words",
               isLeaf ? "font-normal" : "font-medium"
             )}
           >
@@ -817,7 +827,7 @@ function OutlineRow({
           </span>
           {hasPendingSuggestion ? (
             <span
-              className="flex-shrink-0 h-4 min-w-4 px-1 rounded-full bg-[var(--color-accent)] text-white text-[9px] font-bold grid place-items-center"
+              className="flex-shrink-0 h-4 min-w-4 px-1 rounded-full bg-[var(--color-accent)] text-white text-[9px] font-bold grid place-items-center mt-px"
               title={`${hasPendingSuggestion} sugerencia${hasPendingSuggestion === 1 ? "" : "s"} pendiente${hasPendingSuggestion === 1 ? "" : "s"}`}
             >
               {hasPendingSuggestion}
