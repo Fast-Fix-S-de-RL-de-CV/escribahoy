@@ -104,6 +104,71 @@ export function ProjectWorkspace({
   const [showHistory, setShowHistory] = useState(false);
   // Lock global de operaciones IA — solo una a la vez.
   const [aiBusy, setAiBusy] = useState<string | null>(null);
+
+  // Anchuras redimensionables de las columnas (outline / editor / IA panel).
+  // Se persisten en localStorage para que el usuario mantenga su layout.
+  const OUTLINE_MIN = 180;
+  const OUTLINE_MAX = 520;
+  const AI_MIN = 280;
+  const AI_MAX = 640;
+  const [outlineWidth, setOutlineWidth] = useState(280);
+  const [aiPanelWidth, setAiPanelWidth] = useState(360);
+  const [dragging, setDragging] = useState<"outline" | "ai" | null>(null);
+  // Carga del layout al montar.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("escribahoy:layout");
+      if (saved) {
+        const parsed = JSON.parse(saved) as {
+          outline?: number;
+          ai?: number;
+        };
+        if (parsed.outline)
+          setOutlineWidth(
+            Math.min(OUTLINE_MAX, Math.max(OUTLINE_MIN, parsed.outline))
+          );
+        if (parsed.ai)
+          setAiPanelWidth(Math.min(AI_MAX, Math.max(AI_MIN, parsed.ai)));
+      }
+    } catch {}
+  }, []);
+  // Persistir cuando cambia.
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "escribahoy:layout",
+        JSON.stringify({ outline: outlineWidth, ai: aiPanelWidth })
+      );
+    } catch {}
+  }, [outlineWidth, aiPanelWidth]);
+  // Manejo del drag global.
+  useEffect(() => {
+    if (!dragging) return;
+    function onMove(e: MouseEvent) {
+      if (dragging === "outline") {
+        setOutlineWidth(
+          Math.min(OUTLINE_MAX, Math.max(OUTLINE_MIN, e.clientX))
+        );
+      } else if (dragging === "ai") {
+        const fromRight = window.innerWidth - e.clientX;
+        setAiPanelWidth(Math.min(AI_MAX, Math.max(AI_MIN, fromRight)));
+      }
+    }
+    function onUp() {
+      setDragging(null);
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [dragging]);
+
   // Sync server-side updates back into local state when they come via router.refresh().
   useEffect(() => setNodes(initialNodes), [initialNodes]);
 
@@ -196,7 +261,16 @@ export function ProjectWorkspace({
           </Button>
         </div>
       )}
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-[280px_1fr_360px] min-h-0">
+      <div
+        className="flex-1 flex min-h-0"
+        style={
+          dragging ? { cursor: "col-resize", userSelect: "none" } : undefined
+        }
+      >
+        <div
+          className="hidden md:flex flex-shrink-0 min-h-0"
+          style={{ width: outlineWidth }}
+        >
         <OutlinePanel
           project={project}
           nodes={nodes}
@@ -257,27 +331,45 @@ export function ProjectWorkspace({
             applyNodeUpdate(id, { title });
           }}
         />
-        <SectionEditor
-          project={project}
-          node={activeNode}
-          allNodes={nodes}
-          numbering={numbering}
-          suggestions={suggestions}
-          aiBusy={aiBusy}
-          setAiBusy={setAiBusy}
-          onUpdate={(patch) => activeNode && applyNodeUpdate(activeNode.id, patch)}
-          onSuggestionsChange={setSuggestions}
-          onSelectNode={setActiveNodeId}
+        </div>
+        <ResizeHandle
+          onStart={() => setDragging("outline")}
+          active={dragging === "outline"}
         />
-        <AIPanel
-          project={project}
-          activeNode={activeNode}
-          messages={messages}
-          aiBusy={aiBusy}
-          setAiBusy={setAiBusy}
-          onMessages={setMessages}
-          onOutlineChanged={() => router.refresh()}
+        <div className="flex-1 min-w-0 min-h-0 flex">
+          <SectionEditor
+            project={project}
+            node={activeNode}
+            allNodes={nodes}
+            numbering={numbering}
+            suggestions={suggestions}
+            aiBusy={aiBusy}
+            setAiBusy={setAiBusy}
+            onUpdate={(patch) =>
+              activeNode && applyNodeUpdate(activeNode.id, patch)
+            }
+            onSuggestionsChange={setSuggestions}
+            onSelectNode={setActiveNodeId}
+          />
+        </div>
+        <ResizeHandle
+          onStart={() => setDragging("ai")}
+          active={dragging === "ai"}
         />
+        <div
+          className="hidden md:flex flex-shrink-0 min-h-0"
+          style={{ width: aiPanelWidth }}
+        >
+          <AIPanel
+            project={project}
+            activeNode={activeNode}
+            messages={messages}
+            aiBusy={aiBusy}
+            setAiBusy={setAiBusy}
+            onMessages={setMessages}
+            onOutlineChanged={() => router.refresh()}
+          />
+        </div>
       </div>
       {showKb && (
         <KbDrawer
@@ -473,7 +565,7 @@ function OutlinePanel({
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   return (
-    <aside className="border-r border-[var(--color-border)] bg-[var(--color-bg-elevated)] overflow-y-auto">
+    <aside className="w-full border-r border-[var(--color-border)] bg-[var(--color-bg-elevated)] overflow-y-auto">
       {(front.length > 0 || roots.length === 0) && (
         <>
           <SidebarHeader
@@ -933,7 +1025,7 @@ function SectionEditor({
 
   if (!node) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-center p-12 bg-[var(--color-bg)]">
+      <div className="flex-1 flex flex-col items-center justify-center h-full text-center p-12 bg-[var(--color-bg)]">
         <div className="h-14 w-14 rounded-full bg-[var(--color-bg-muted)] grid place-items-center text-[var(--color-fg-subtle)] mb-4">
           <BookOpenIcon className="h-6 w-6" />
         </div>
@@ -950,7 +1042,7 @@ function SectionEditor({
   const progressPct = Math.min(100, (node.wordCount / targetWords) * 100);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-[var(--color-bg)]">
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--color-bg)]">
       <div className="px-8 pt-6 pb-3 border-b border-[var(--color-border)] bg-[var(--color-bg-elevated)]">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
@@ -1173,6 +1265,43 @@ function SectionEditor({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function ResizeHandle({
+  onStart,
+  active,
+}: {
+  onStart: () => void;
+  active: boolean;
+}) {
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      onMouseDown={(e) => {
+        e.preventDefault();
+        onStart();
+      }}
+      onDoubleClick={() => {
+        // Doble click: no resetea, solo muestra cursor de resize.
+      }}
+      className={cn(
+        "hidden md:block flex-shrink-0 w-1 cursor-col-resize relative group",
+        active
+          ? "bg-[var(--color-accent)]"
+          : "bg-transparent hover:bg-[var(--color-accent)]/40"
+      )}
+      style={{ touchAction: "none" }}
+      title="Arrastra para redimensionar"
+    >
+      <div
+        className={cn(
+          "absolute inset-y-0 -left-1 -right-1",
+          // expande el área clickeable sin afectar el ancho visual
+        )}
+      />
     </div>
   );
 }
@@ -1647,7 +1776,7 @@ function AIPanel({
       ];
 
   return (
-    <aside className="border-l border-[var(--color-border)] bg-[var(--color-bg-elevated)] flex flex-col min-h-0">
+    <aside className="w-full border-l border-[var(--color-border)] bg-[var(--color-bg-elevated)] flex flex-col min-h-0">
       <div className="px-4 py-3 border-b border-[var(--color-border)] flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="h-7 w-7 rounded-md bg-[var(--color-accent-soft)] grid place-items-center text-[var(--color-accent)]">
