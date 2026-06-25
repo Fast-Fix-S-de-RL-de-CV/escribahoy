@@ -17,19 +17,29 @@ jobs:
       - name: Trigger deploy on server
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: 67.227.249.163
-          port: 22
+          # Servidor dedicado .12 (migrado desde el VPS .163 en jun-2026).
+          # Auth por LLAVE dedicada (secrets.SERVER_SSH_KEY), no password root.
+          host: 67.225.139.12
+          port: 522
           username: root
-          password: ${{ secrets.SERVER_PASSWORD }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 20m
           script: |
             set -e
             cd /var/www/escribahoy
-            echo "==> fetch + reset"
+            echo "==> fetch"
             git fetch origin main
+            # ¿Cambiaron dependencias? Solo entonces npm install.
+            # (better-sqlite3 es nativo y se compiló a mano con gcc-toolset-12;
+            #  un npm install ciego en cada deploy podría romperlo.)
+            CHANGED="$(git diff --name-only HEAD origin/main || true)"
             git reset --hard origin/main
-            echo "==> npm install"
-            npm install --no-audit --no-fund
+            if echo "$CHANGED" | grep -qE '(^|/)package(-lock)?\.json$'; then
+              echo "==> deps cambiaron: npm install"
+              npm install --no-audit --no-fund
+            else
+              echo "==> sin cambios de deps: omito npm install (protege better-sqlite3)"
+            fi
             echo "==> build"
             npm run build
             echo "==> restart pm2"
