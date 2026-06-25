@@ -8,14 +8,16 @@ export default async function LoginPage() {
   if (user) redirect("/dashboard");
   return (
     <div className="w-full max-w-md animate-fade-in">
-      <div className="text-center mb-8">
-        <h1 className="text-3xl font-semibold tracking-tight">Bienvenido de vuelta</h1>
-        <p className="text-[var(--color-fg-muted)] mt-2">
+      <div className="text-center mb-10">
+        <h1 className="text-4xl font-semibold tracking-tight">
+          Bienvenido de vuelta
+        </h1>
+        <p className="text-lg text-[var(--color-fg-muted)] mt-3">
           Sigue escribiendo donde lo dejaste.
         </p>
       </div>
       <LoginForm />
-      <p className="text-center text-sm text-[var(--color-fg-muted)] mt-6">
+      <p className="text-center text-base text-[var(--color-fg-muted)] mt-8">
         ¿Aún no tienes cuenta?{" "}
         <Link
           href="/register"

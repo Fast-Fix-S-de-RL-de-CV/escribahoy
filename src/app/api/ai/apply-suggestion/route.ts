@@ -40,6 +40,21 @@ export async function POST(req: NextRequest) {
   const suggestion = sRows[0].suggestions;
   const project = sRows[0].projects;
 
+  // Idempotencia: una sugerencia ya aplicada o descartada NO se vuelve a
+  // ejecutar. Sin esto, un doble click / retry re-genera contenido (no
+  // determinista) y PISA lo que el autor pudo editar manualmente después.
+  if (suggestion.status !== "pending") {
+    return NextResponse.json(
+      {
+        error:
+          suggestion.status === "applied"
+            ? "Esta sugerencia ya fue aplicada."
+            : "Esta sugerencia ya no está disponible.",
+      },
+      { status: 409 }
+    );
+  }
+
   const missing = getMissingCoreSettings(project);
   if (missing.length) {
     return NextResponse.json(

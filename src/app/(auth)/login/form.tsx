@@ -13,20 +13,38 @@ export function LoginForm() {
   );
   return (
     <Card>
-      <CardBody>
-        <form action={action} className="space-y-4">
+      <CardBody className="p-8">
+        <form action={action} className="space-y-6">
           <div>
             <Label htmlFor="email">Email</Label>
-            <Input id="email" name="email" type="email" required autoFocus />
+            <Input
+              id="email"
+              name="email"
+              type="email"
+              required
+              autoFocus
+              className="h-14 text-lg px-5"
+            />
           </div>
           <div>
             <Label htmlFor="password">Contraseña</Label>
-            <Input id="password" name="password" type="password" required />
+            <Input
+              id="password"
+              name="password"
+              type="password"
+              required
+              className="h-14 text-lg px-5"
+            />
           </div>
           {state?.error && (
-            <p className="text-sm text-[var(--color-danger)]">{state.error}</p>
+            <p className="text-base text-[var(--color-danger)]">{state.error}</p>
           )}
-          <Button type="submit" className="w-full" disabled={pending}>
+          <Button
+            type="submit"
+            size="lg"
+            className="w-full text-base"
+            disabled={pending}
+          >
             {pending ? "Entrando..." : "Iniciar sesión"}
           </Button>
         </form>

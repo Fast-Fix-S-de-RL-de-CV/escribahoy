@@ -8,16 +8,16 @@ export default async function RegisterPage() {
   if (user) redirect("/dashboard");
   return (
     <div className="w-full max-w-md animate-fade-in">
-      <div className="text-center mb-8">
-        <h1 className="text-3xl font-semibold tracking-tight">
+      <div className="text-center mb-10">
+        <h1 className="text-4xl font-semibold tracking-tight">
           Empieza a escribir hoy
         </h1>
-        <p className="text-[var(--color-fg-muted)] mt-2">
+        <p className="text-lg text-[var(--color-fg-muted)] mt-3">
           Tu primer libro o curso, organizado por la IA.
         </p>
       </div>
       <RegisterForm />
-      <p className="text-center text-sm text-[var(--color-fg-muted)] mt-6">
+      <p className="text-center text-base text-[var(--color-fg-muted)] mt-8">
         ¿Ya tienes cuenta?{" "}
         <Link
           href="/login"

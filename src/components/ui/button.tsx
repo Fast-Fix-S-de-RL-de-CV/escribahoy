@@ -24,10 +24,10 @@ const VARIANTS: Record<Variant, string> = {
 };
 
 const SIZES: Record<Size, string> = {
-  sm: "h-8 px-3 text-sm",
-  md: "h-10 px-4 text-sm",
-  lg: "h-12 px-6 text-base",
-  icon: "h-9 w-9 p-0",
+  sm: "h-9 px-3.5 text-sm",
+  md: "h-11 px-5 text-[15px]",
+  lg: "h-14 px-7 text-base",
+  icon: "h-10 w-10 p-0",
 };
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(

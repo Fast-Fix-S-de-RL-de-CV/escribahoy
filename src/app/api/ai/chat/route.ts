@@ -81,6 +81,7 @@ export async function POST(req: NextRequest) {
 
       let assistantText = "";
       let outlineChanged = false;
+      let streamFailed = false;
 
       try {
         let outlineText = await renderOutlineWithIds(project.id);
@@ -369,15 +370,20 @@ Llama la herramienta AHORA con el contenido literal del usuario, formateado en H
           }
         }
       } catch (err) {
+        // Notificamos el error SOLO por el stream SSE. NO lo concatenamos a
+        // assistantText: si lo persistiéramos, ese "[error: ...]" entraría en
+        // el priorHistory de futuras requests y contaminaría el contexto de
+        // la IA.
         send({
           type: "error",
           error: err instanceof Error ? err.message : "stream error",
         });
-        assistantText +=
-          (assistantText ? "\n\n" : "") +
-          `[error: ${err instanceof Error ? err.message : "stream"}]`;
+        streamFailed = true;
       } finally {
-        if (assistantText.trim()) {
+        // Solo persistimos la respuesta del asistente si el turno NO falló y
+        // produjo texto real. Un turno fallido no deja mensaje 'assistant'
+        // envenenado en el historial.
+        if (!streamFailed && assistantText.trim()) {
           await db.insert(aiMessages).values({
             id: nanoid(),
             projectId: project.id,

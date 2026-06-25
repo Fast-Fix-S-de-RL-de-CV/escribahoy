@@ -156,8 +156,8 @@ export function DictationModal({
               <MicIcon className="h-4 w-4" />
             </span>
             <div>
-              <div className="font-semibold">Editor de dictado</div>
-              <div className="text-xs text-[var(--color-fg-subtle)] flex items-center gap-1.5">
+              <div className="text-lg font-semibold">Editor de dictado</div>
+              <div className="text-sm text-[var(--color-fg-subtle)] flex items-center gap-1.5">
                 {dictation.isListening ? (
                   <>
                     <span className="relative flex h-2 w-2">
@@ -212,19 +212,18 @@ export function DictationModal({
             <Button
               type="button"
               variant={dictation.isListening ? "danger" : "outline"}
-              size="sm"
+              size="md"
               onClick={togglePause}
               disabled={!dictation.isSupported}
-              className={dictation.isListening ? "" : ""}
             >
               {dictation.isListening ? (
                 <>
-                  <PauseIcon className="h-3.5 w-3.5" />
+                  <PauseIcon className="h-4 w-4" />
                   Pausar
                 </>
               ) : (
                 <>
-                  <PlayIcon className="h-3.5 w-3.5" />
+                  <PlayIcon className="h-4 w-4" />
                   {paused || text ? "Reanudar" : "Dictar"}
                 </>
               )}
@@ -232,7 +231,7 @@ export function DictationModal({
             <Button
               type="button"
               variant="outline"
-              size="sm"
+              size="md"
               onClick={improveWithAI}
               disabled={improving || !text.trim()}
               title="Limpia ortografía, puntuación y muletillas. NO cambia tus ideas."
@@ -268,15 +267,15 @@ export function DictationModal({
             )}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={handleClose}>
+            <Button variant="ghost" size="md" onClick={handleClose}>
               Cancelar
             </Button>
             <Button
-              size="sm"
+              size="md"
               onClick={handleInsert}
               disabled={!text.trim()}
             >
-              <ArrowDownToLineIcon className="h-3.5 w-3.5" />
+              <ArrowDownToLineIcon className="h-4 w-4" />
               Listo, insertar
             </Button>
           </div>

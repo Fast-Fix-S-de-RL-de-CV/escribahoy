@@ -309,6 +309,22 @@ DEVUELVE ÚNICAMENTE el texto de la sugerencia (markdown OK). Sin preámbulos. E
       );
     }
 
+    // Re-verificar justo antes de insertar: si otra request concurrente ya
+    // creó una sugerencia para este nodo durante los segundos que tardó la
+    // IA, no insertamos una duplicada.
+    const raceCheck = await db
+      .select()
+      .from(suggestions)
+      .where(eq(suggestions.nodeId, node.id))
+      .limit(1);
+    if (raceCheck.length) {
+      return NextResponse.json({
+        ok: true,
+        skipped: "race_existing",
+        suggestion: raceCheck[0],
+      });
+    }
+
     const id = nanoid();
     await db.insert(suggestions).values({
       id,

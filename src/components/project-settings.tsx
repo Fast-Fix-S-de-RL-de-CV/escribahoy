@@ -170,10 +170,10 @@ export function ProjectSettings({
     <div className="fixed inset-0 z-30 flex">
       <div className="flex-1 bg-black/30" onClick={onClose} />
       <div className="w-full max-w-xl bg-[var(--color-bg-elevated)] border-l border-[var(--color-border)] flex flex-col animate-fade-in">
-        <div className="px-5 py-4 border-b border-[var(--color-border)] flex items-center justify-between">
+        <div className="px-6 py-5 border-b border-[var(--color-border)] flex items-center justify-between">
           <div>
-            <div className="font-semibold">Configuración del proyecto</div>
-            <div className="text-xs text-[var(--color-fg-subtle)]">
+            <div className="text-lg font-semibold">Configuración del proyecto</div>
+            <div className="text-sm text-[var(--color-fg-subtle)]">
               {isBook ? "Libro" : "Curso"} ·{" "}
               {KINDS.find((k) => k.id === form.kindDetail)?.label ?? "sin tipo"}
             </div>
@@ -186,7 +186,7 @@ export function ProjectSettings({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5 space-y-6">
+        <div className="flex-1 overflow-y-auto p-6 space-y-8">
           {missingCore.length > 0 && (
             <div className="rounded-md bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900 flex items-start gap-2">
               <AlertTriangleIcon className="h-4 w-4 flex-shrink-0 mt-0.5" />
@@ -310,7 +310,7 @@ export function ProjectSettings({
                       key={f.id}
                       type="button"
                       onClick={() => update("format", f.id)}
-                      className={`text-left rounded-md border p-2.5 transition-all ${
+                      className={`text-left rounded-lg border p-4 transition-all ${
                         form.format === f.id
                           ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
                           : "border-[var(--color-border)] hover:border-[var(--color-border-strong)]"
@@ -324,14 +324,14 @@ export function ProjectSettings({
                           selected={form.format === f.id}
                         />
                         <div className="min-w-0 flex-1">
-                          <div className="text-xs font-medium truncate">
+                          <div className="text-sm font-medium truncate">
                             {f.label}
                           </div>
-                          <div className="text-[11px] text-[var(--color-fg-muted)] mt-0.5">
+                          <div className="text-xs text-[var(--color-fg-muted)] mt-1">
                             {f.widthIn}×{f.heightIn}″ · {f.widthCm}×{f.heightCm}cm ·{" "}
                             {f.widthMm}×{f.heightMm}mm
                           </div>
-                          <div className="text-[10px] text-[var(--color-fg-subtle)]">
+                          <div className="text-xs text-[var(--color-fg-subtle)] mt-0.5">
                             Ideal: {f.pageSweetMin}–{f.pageSweetMax} páginas
                           </div>
                         </div>
@@ -346,7 +346,7 @@ export function ProjectSettings({
                   <Label>
                     Páginas objetivo <RequiredMark />
                   </Label>
-                  <p className="text-xs text-[var(--color-fg-muted)] mb-2">
+                  <p className="text-sm text-[var(--color-fg-muted)] mb-3">
                     {fmtSelected.label} acepta{" "}
                     <strong>{fmtSelected.pageMin}-{fmtSelected.pageMax}</strong>.
                     Lo ideal: {fmtSelected.pageSweetMin}-{fmtSelected.pageSweetMax}.
@@ -371,9 +371,9 @@ export function ProjectSettings({
                       onChange={(e) =>
                         update("targetPages", Number(e.target.value))
                       }
-                      className="h-9 w-20 rounded-md border border-[var(--color-border)] px-2 text-sm bg-[var(--color-bg-elevated)] text-center"
+                      className="h-12 w-24 rounded-md border border-[var(--color-border)] px-3 text-base bg-[var(--color-bg-elevated)] text-center"
                     />
-                    <span className="text-xs text-[var(--color-fg-muted)]">
+                    <span className="text-sm text-[var(--color-fg-muted)]">
                       páginas
                     </span>
                   </div>
@@ -418,7 +418,7 @@ export function ProjectSettings({
               <select
                 value={form.tone}
                 onChange={(e) => update("tone", e.target.value)}
-                className="flex h-10 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 text-sm"
+                className="flex h-12 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-4 text-base"
               >
                 <option value="">— elegir —</option>
                 {TONES.map((t) => (
@@ -446,7 +446,7 @@ export function ProjectSettings({
               <select
                 value={form.language}
                 onChange={(e) => update("language", e.target.value)}
-                className="flex h-10 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 text-sm"
+                className="flex h-12 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-4 text-base"
               >
                 {LANGUAGES.map((l) => (
                   <option key={l.id} value={l.id}>
@@ -462,7 +462,7 @@ export function ProjectSettings({
               <select
                 value={form.perspective}
                 onChange={(e) => update("perspective", e.target.value)}
-                className="flex h-10 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 text-sm"
+                className="flex h-12 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-4 text-base"
               >
                 <option value="">— elegir —</option>
                 {PERSPECTIVES.map((p) => (
@@ -477,7 +477,7 @@ export function ProjectSettings({
               <select
                 value={form.formality}
                 onChange={(e) => update("formality", e.target.value)}
-                className="flex h-10 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 text-sm"
+                className="flex h-12 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-4 text-base"
               >
                 <option value="">— sin preferencia —</option>
                 {FORMALITIES.map((f) => (
@@ -569,17 +569,17 @@ export function ProjectSettings({
           </Section>
         </div>
 
-        <div className="border-t border-[var(--color-border)] px-5 py-3 flex items-center justify-between gap-3">
+        <div className="border-t border-[var(--color-border)] px-6 py-4 flex items-center justify-between gap-3">
           {error ? (
             <p className="text-sm text-[var(--color-danger)]">{error}</p>
           ) : (
             <Badge variant="muted">Cambios guardados al confirmar</Badge>
           )}
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={onClose} disabled={pending}>
+            <Button variant="ghost" size="lg" onClick={onClose} disabled={pending}>
               Cancelar
             </Button>
-            <Button onClick={handleSave} disabled={pending}>
+            <Button size="lg" onClick={handleSave} disabled={pending}>
               {pending ? (
                 <>
                   <Loader2Icon className="h-4 w-4 animate-spin" />
@@ -610,19 +610,19 @@ function Section({
   return (
     <section>
       <div className="flex items-center gap-2 mb-3">
-        <div className="text-xs font-semibold uppercase tracking-wider text-[var(--color-fg-subtle)]">
+        <div className="text-sm font-semibold uppercase tracking-wider text-[var(--color-fg-subtle)]">
           {title}
         </div>
         {required && (
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
             Obligatorio
           </span>
         )}
       </div>
       {help && (
-        <p className="text-xs text-[var(--color-fg-muted)] mb-3">{help}</p>
+        <p className="text-sm text-[var(--color-fg-muted)] mb-4">{help}</p>
       )}
-      <div className="space-y-3">{children}</div>
+      <div className="space-y-5">{children}</div>
     </section>
   );
 }

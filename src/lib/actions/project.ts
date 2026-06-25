@@ -4,18 +4,20 @@ import { z } from "zod";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { nanoid } from "nanoid";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   projects,
   outlineNodes,
   knowledgeFiles,
   aiMessages,
+  suggestions,
 } from "@/lib/schema";
 import { requireUser } from "@/lib/auth";
 import { getAnthropic, MODEL, SYSTEM_BASE } from "@/lib/anthropic";
 import { logChange } from "@/lib/change-log";
 import { getFormat } from "@/lib/book-formats";
+import { wordCount } from "@/lib/utils";
 
 const CreateProjectSchema = z.object({
   type: z.enum(["book", "course"]),
@@ -258,6 +260,16 @@ ${
     parsed = JSON.parse(raw) as OutlineResponse;
   } catch {
     throw new Error("La IA devolvió un formato inesperado, intenta de nuevo");
+  }
+
+  // CRÍTICO: validar que la IA devolvió capítulos ANTES de borrar el outline
+  // existente. Si la respuesta es {}, {"nodes": []} o {"nodes": null}, el
+  // JSON.parse no lanza, y sin esta guarda destruiríamos el outline del autor
+  // (capítulos + contenido escrito) reemplazándolo por front/back matter vacío.
+  if (!Array.isArray(parsed.nodes) || parsed.nodes.length === 0) {
+    throw new Error(
+      "La IA no devolvió capítulos válidos. No se modificó tu outline; intenta de nuevo."
+    );
   }
 
   await db.delete(outlineNodes).where(eq(outlineNodes.projectId, projectId));
@@ -529,8 +541,7 @@ export async function updateNode(input: z.infer<typeof UpdateSectionSchema>) {
   const updates: Record<string, unknown> = { updatedAt: new Date() };
   if (parsed.content !== undefined) {
     updates.content = parsed.content;
-    const wc = parsed.content.replace(/<[^>]*>/g, " ").trim().split(/\s+/)
-      .filter(Boolean).length;
+    const wc = wordCount(parsed.content);
     updates.wordCount = wc;
     if (parsed.status === undefined) {
       updates.status = wc > 50 ? "in_progress" : wc > 0 ? "draft" : "empty";
@@ -637,6 +648,28 @@ export async function deleteNode(input: {
     .where(and(eq(projects.id, input.projectId), eq(projects.userId, user.id)))
     .limit(1);
   if (!owns.length) throw new Error("No autorizado");
+  // Recolectar el nodo + sus hijos directos para limpiar también las
+  // sugerencias ligadas (suggestions.nodeId no tiene FK a outline_nodes, así
+  // que no cascadean solas; quedaban 'pending' apuntando a nodos borrados,
+  // inflando el contador del sidebar para nodos inexistentes).
+  const children = await db
+    .select({ id: outlineNodes.id })
+    .from(outlineNodes)
+    .where(
+      and(
+        eq(outlineNodes.parentId, input.nodeId),
+        eq(outlineNodes.projectId, input.projectId)
+      )
+    );
+  const idsToClear = [input.nodeId, ...children.map((c) => c.id)];
+  await db
+    .delete(suggestions)
+    .where(
+      and(
+        eq(suggestions.projectId, input.projectId),
+        inArray(suggestions.nodeId, idsToClear)
+      )
+    );
   await db
     .delete(outlineNodes)
     .where(

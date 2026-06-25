@@ -86,6 +86,12 @@ export function ProjectWorkspace({
   const [suggestions, setSuggestions] = useState(initialSuggestions);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(initialNodeId);
   const [showKb, setShowKb] = useState(false);
+  // IDs de nodos con edición local sin guardar (save debounced en vuelo). Un
+  // router.refresh() NO debe pisar su content/closing con el del servidor
+  // (que aún no tiene lo recién tecleado) o se perdería texto del autor.
+  const dirtyNodesRef = useRef<Set<string>>(new Set());
+  const markNodeDirty = (id: string) => dirtyNodesRef.current.add(id);
+  const markNodeClean = (id: string) => dirtyNodesRef.current.delete(id);
 
   // Numeración jerárquica calculada — se reajusta cuando cambia el outline.
   const numbering = useMemo(() => computeNumbering(nodes), [nodes]);
@@ -169,8 +175,31 @@ export function ProjectWorkspace({
     };
   }, [dragging]);
 
-  // Sync server-side updates back into local state when they come via router.refresh().
-  useEffect(() => setNodes(initialNodes), [initialNodes]);
+  // Sync server-side updates back into local state when they come via
+  // router.refresh(). Para los nodos con edición local sin guardar,
+  // conservamos su content/closingContent/wordCount locales (el servidor
+  // todavía no los tiene) y solo tomamos los campos estructurales del
+  // servidor (title/summary/status/position).
+  useEffect(() => {
+    setNodes((prev) => {
+      if (dirtyNodesRef.current.size === 0) return initialNodes;
+      const prevById = new Map(prev.map((p) => [p.id, p]));
+      return initialNodes.map((sn) => {
+        if (!dirtyNodesRef.current.has(sn.id)) return sn;
+        const local = prevById.get(sn.id);
+        if (!local) return sn;
+        return {
+          ...sn,
+          content: local.content,
+          closingContent: local.closingContent,
+          wordCount: local.wordCount,
+        };
+      });
+    });
+  }, [initialNodes]);
+  // Re-sincronizar mensajes del chat tras router.refresh() para no quedarnos
+  // con mensajes optimistas (ids temporales) que divergen del historial real.
+  useEffect(() => setMessages(initialMessages), [initialMessages]);
 
   const missingCore = useMemo(
     () => getMissingCoreSettings(project),
@@ -338,6 +367,7 @@ export function ProjectWorkspace({
         />
         <div className="flex-1 min-w-0 min-h-0 flex">
           <SectionEditor
+            key={activeNode?.id ?? "none"}
             project={project}
             node={activeNode}
             allNodes={nodes}
@@ -348,6 +378,8 @@ export function ProjectWorkspace({
             onUpdate={(patch) =>
               activeNode && applyNodeUpdate(activeNode.id, patch)
             }
+            onMarkDirty={markNodeDirty}
+            onMarkClean={markNodeClean}
             onSuggestionsChange={setSuggestions}
             onSelectNode={setActiveNodeId}
           />
@@ -885,6 +917,8 @@ function SectionEditor({
   aiBusy,
   setAiBusy,
   onUpdate,
+  onMarkDirty,
+  onMarkClean,
   onSuggestionsChange,
   onSelectNode,
 }: {
@@ -896,6 +930,8 @@ function SectionEditor({
   aiBusy: string | null;
   setAiBusy: (key: string | null) => void;
   onUpdate: (patch: Partial<OutlineNode>) => void;
+  onMarkDirty: (id: string) => void;
+  onMarkClean: (id: string) => void;
   onSuggestionsChange: (next: Suggestion[]) => void;
   onSelectNode: (id: string) => void;
 }) {
@@ -903,6 +939,13 @@ function SectionEditor({
   const [, startTransition] = useTransition();
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closingSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [saving, setSaving] = useState(false);
   const [generatingScript, setGeneratingScript] = useState(false);
@@ -964,20 +1007,23 @@ function SectionEditor({
 
   function scheduleSave(content: string) {
     if (!node) return;
+    const nid = node.id;
+    onMarkDirty(nid);
     onUpdate({ content, wordCount: wordCount(content) });
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      setSaving(true);
+      if (mountedRef.current) setSaving(true);
       startTransition(async () => {
         try {
           await updateNode({
             projectId: project.id,
-            nodeId: node.id,
+            nodeId: nid,
             content,
           });
-          setSavedAt(new Date());
+          onMarkClean(nid);
+          if (mountedRef.current) setSavedAt(new Date());
         } finally {
-          setSaving(false);
+          if (mountedRef.current) setSaving(false);
         }
       });
     }, 1000);
@@ -985,20 +1031,23 @@ function SectionEditor({
 
   function scheduleSaveClosing(closing: string) {
     if (!node) return;
+    const nid = node.id;
+    onMarkDirty(nid);
     onUpdate({ closingContent: closing });
     if (closingSaveTimer.current) clearTimeout(closingSaveTimer.current);
     closingSaveTimer.current = setTimeout(() => {
-      setSaving(true);
+      if (mountedRef.current) setSaving(true);
       startTransition(async () => {
         try {
           await updateNode({
             projectId: project.id,
-            nodeId: node.id,
+            nodeId: nid,
             closingContent: closing,
           });
-          setSavedAt(new Date());
+          onMarkClean(nid);
+          if (mountedRef.current) setSavedAt(new Date());
         } finally {
-          setSaving(false);
+          if (mountedRef.current) setSaving(false);
         }
       });
     }, 1000);
@@ -1595,9 +1644,15 @@ function AIPanel({
     return `${lang}-MX`;
   })();
 
-  const dictationSupported =
-    typeof window !== "undefined" &&
-    ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+  // Detección de soporte de dictado en un effect (solo cliente) para que el
+  // primer render coincida con el del servidor (false) y no haya mismatch de
+  // hidratación al condicionar el botón de micrófono.
+  const [dictationSupported, setDictationSupported] = useState(false);
+  useEffect(() => {
+    setDictationSupported(
+      "SpeechRecognition" in window || "webkitSpeechRecognition" in window
+    );
+  }, []);
 
   // Si el usuario navega a un estado SIN sección activa y estaba en
   // "section", forzar a "global" porque no aplica. Pero NO resetear
@@ -1643,7 +1698,7 @@ function AIPanel({
     setInput("");
     setAiBusy("chat");
     const tempUser: AIMessage = {
-      id: "tmp-u-" + Date.now(),
+      id: "tmp-u-" + crypto.randomUUID(),
       projectId: project.id,
       nodeId: activeNode?.id ?? null,
       role: "user",
@@ -1731,7 +1786,7 @@ function AIPanel({
               .join("\n")
           : "");
       const tempAi: AIMessage = {
-        id: "tmp-a-" + Date.now(),
+        id: "tmp-a-" + crypto.randomUUID(),
         projectId: project.id,
         nodeId: activeNode?.id ?? null,
         role: "assistant",
@@ -1750,7 +1805,7 @@ function AIPanel({
       if (outlineChanged) onOutlineChanged();
     } catch {
       const tempErr: AIMessage = {
-        id: "tmp-e-" + Date.now(),
+        id: "tmp-e-" + crypto.randomUUID(),
         projectId: project.id,
         nodeId: activeNode?.id ?? null,
         role: "assistant",

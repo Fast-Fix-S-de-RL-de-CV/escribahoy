@@ -114,6 +114,21 @@ export function OnboardingWizard() {
 
   async function handleUpload(file: File) {
     if (!projectId) return;
+    if (uploading) return; // evita subidas concurrentes (drag mientras sube)
+    // Validación cliente de tamaño y tipo antes de gastar la subida.
+    const MAX = 12 * 1024 * 1024;
+    if (file.size > MAX) {
+      setUploadError("El archivo supera 12 MB.");
+      return;
+    }
+    const okType =
+      file.type === "application/pdf" ||
+      file.type.startsWith("text/") ||
+      /\.(pdf|txt|md|markdown)$/i.test(file.name);
+    if (!okType) {
+      setUploadError("Formato no soportado. Usa PDF, TXT o Markdown.");
+      return;
+    }
     setUploading(true);
     setUploadError(null);
     try {
@@ -162,20 +177,20 @@ export function OnboardingWizard() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-6 py-10">
-      <div className="mb-6">
+    <div className="max-w-3xl mx-auto px-6 py-12">
+      <div className="mb-8">
         <Progress value={progress} />
-        <p className="text-xs text-[var(--color-fg-subtle)] mt-2">
+        <p className="text-sm text-[var(--color-fg-subtle)] mt-3">
           Paso {step + 1} de {totalSteps}
         </p>
       </div>
 
       {step === 0 && (
         <div className="animate-fade-in">
-          <h1 className="text-3xl font-semibold tracking-tight">
+          <h1 className="text-4xl font-semibold tracking-tight">
             ¿Qué vas a crear?
           </h1>
-          <p className="text-[var(--color-fg-muted)] mt-2">
+          <p className="text-lg text-[var(--color-fg-muted)] mt-3">
             Esto define cómo Escribahoy estructura tu proyecto.
           </p>
           <div className="grid sm:grid-cols-2 gap-4 mt-6">
@@ -209,30 +224,30 @@ export function OnboardingWizard() {
 
       {step === 1 && (
         <div className="animate-fade-in">
-          <h1 className="text-3xl font-semibold tracking-tight">
+          <h1 className="text-4xl font-semibold tracking-tight">
             ¿Qué tipo de {type === "book" ? "libro" : "curso"}?
           </h1>
-          <p className="text-[var(--color-fg-muted)] mt-2">
+          <p className="text-lg text-[var(--color-fg-muted)] mt-3">
             Cada formato tiene su estructura. Esto guía cómo la IA arma tu
             outline.
           </p>
-          <div className="grid sm:grid-cols-2 gap-3 mt-6">
+          <div className="grid sm:grid-cols-2 gap-4 mt-8">
             {(type === "book" ? BOOK_KINDS : COURSE_KINDS).map((k) => (
               <button
                 key={k.id}
                 type="button"
                 onClick={() => setKindDetail(k.id)}
-                className={`text-left rounded-[var(--radius-md)] border p-3 transition-all ${
+                className={`text-left rounded-[var(--radius-lg)] border p-5 transition-all ${
                   kindDetail === k.id
                     ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
                     : "border-[var(--color-border)] hover:border-[var(--color-border-strong)]"
                 }`}
               >
-                <div className="font-medium text-sm">{k.label}</div>
-                <div className="text-xs text-[var(--color-fg-muted)] mt-1 leading-relaxed">
+                <div className="font-medium text-base">{k.label}</div>
+                <div className="text-sm text-[var(--color-fg-muted)] mt-1.5 leading-relaxed">
                   {k.desc}
                 </div>
-                <div className="text-[11px] text-[var(--color-fg-subtle)] mt-1.5 italic leading-snug">
+                <div className="text-xs text-[var(--color-fg-subtle)] mt-2 italic leading-snug">
                   {k.examples}
                 </div>
               </button>
@@ -260,13 +275,13 @@ export function OnboardingWizard() {
 
       {step === 3 && (
         <div className="animate-fade-in">
-          <h1 className="text-3xl font-semibold tracking-tight">
+          <h1 className="text-4xl font-semibold tracking-tight">
             Cuéntame de tu {type === "book" ? "libro" : "curso"}
           </h1>
-          <p className="text-[var(--color-fg-muted)] mt-2">
+          <p className="text-lg text-[var(--color-fg-muted)] mt-3">
             Lo básico, después lo refinamos juntos.
           </p>
-          <div className="space-y-4 mt-6">
+          <div className="space-y-6 mt-8">
             <div>
               <Label>Título de trabajo</Label>
               <Input
@@ -278,6 +293,7 @@ export function OnboardingWizard() {
                     : "Ej: Marketing para fundadores no marketeros"
                 }
                 autoFocus
+                className="h-14 text-lg px-5"
               />
             </div>
             <div>
@@ -287,6 +303,7 @@ export function OnboardingWizard() {
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="La idea central, el problema que resuelve, lo que el lector se llevará."
                 rows={4}
+                className="text-lg px-5 py-4 min-h-[140px]"
               />
             </div>
             <div>
@@ -295,6 +312,7 @@ export function OnboardingWizard() {
                 value={goal}
                 onChange={(e) => setGoal(e.target.value)}
                 placeholder="Ej: Publicar en 6 meses, vender 500 copias..."
+                className="h-14 text-lg px-5"
               />
             </div>
           </div>
@@ -308,37 +326,38 @@ export function OnboardingWizard() {
 
       {step === 4 && (
         <div className="animate-fade-in">
-          <h1 className="text-3xl font-semibold tracking-tight">
+          <h1 className="text-4xl font-semibold tracking-tight">
             ¿Para quién y con qué tono?
           </h1>
-          <p className="text-[var(--color-fg-muted)] mt-2">
+          <p className="text-lg text-[var(--color-fg-muted)] mt-3">
             Esto guía a la IA para sugerir y organizar.
           </p>
-          <div className="space-y-4 mt-6">
+          <div className="space-y-6 mt-8">
             <div>
               <Label>Audiencia</Label>
               <Input
                 value={audience}
                 onChange={(e) => setAudience(e.target.value)}
                 placeholder="Ej: Fundadores en etapa temprana sin experiencia en producto"
+                className="h-14 text-lg px-5"
               />
             </div>
             <div>
               <Label>Tono</Label>
-              <div className="grid sm:grid-cols-2 gap-3 mt-2">
+              <div className="grid sm:grid-cols-2 gap-4 mt-3">
                 {TONES.map((t) => (
                   <button
                     key={t.id}
                     type="button"
                     onClick={() => setTone(t.id)}
-                    className={`text-left rounded-[var(--radius-md)] border p-3 transition-all ${
+                    className={`text-left rounded-[var(--radius-lg)] border p-5 transition-all ${
                       tone === t.id
                         ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
                         : "border-[var(--color-border)] hover:border-[var(--color-border-strong)]"
                     }`}
                   >
-                    <div className="font-medium text-sm">{t.label}</div>
-                    <div className="text-xs text-[var(--color-fg-muted)] mt-0.5">
+                    <div className="font-medium text-base">{t.label}</div>
+                    <div className="text-sm text-[var(--color-fg-muted)] mt-1">
                       {t.desc}
                     </div>
                   </button>
@@ -356,10 +375,10 @@ export function OnboardingWizard() {
 
       {step === 5 && (
         <div className="animate-fade-in">
-          <h1 className="text-3xl font-semibold tracking-tight">
+          <h1 className="text-4xl font-semibold tracking-tight">
             Knowledge base inicial
           </h1>
-          <p className="text-[var(--color-fg-muted)] mt-2">
+          <p className="text-lg text-[var(--color-fg-muted)] mt-3">
             Sube PDFs, notas, transcripciones. La IA los usará para sugerirte
             estructura y referencias. Puedes saltarte este paso.
           </p>
@@ -417,7 +436,7 @@ export function OnboardingWizard() {
             <div className="h-14 w-14 rounded-full bg-[var(--color-accent-soft)] grid place-items-center text-[var(--color-accent)] mx-auto mb-5">
               <SparklesIcon className="h-7 w-7" />
             </div>
-            <h1 className="text-3xl font-semibold tracking-tight">
+            <h1 className="text-4xl font-semibold tracking-tight">
               Listos para generar tu outline
             </h1>
             <p className="text-[var(--color-fg-muted)] mt-3">
@@ -481,9 +500,10 @@ export function OnboardingWizard() {
                 {generationError}
               </p>
             )}
-            <div className="mt-6 flex items-center justify-center gap-3">
+            <div className="mt-8 flex items-center justify-center gap-3">
               <Button
                 variant="outline"
+                size="lg"
                 onClick={() => setStep(5)}
                 disabled={generating}
               >
@@ -509,7 +529,7 @@ export function OnboardingWizard() {
               </Button>
             </div>
             {generating && (
-              <p className="text-xs text-[var(--color-fg-subtle)] mt-3">
+              <p className="text-sm text-[var(--color-fg-subtle)] mt-4">
                 Esto puede tardar 20-40 segundos. No cierres la ventana.
               </p>
             )}
@@ -570,15 +590,15 @@ function Footer({
   nextLabel?: string;
 }) {
   return (
-    <div className="mt-8 flex items-center justify-between">
+    <div className="mt-10 flex items-center justify-between">
       {onPrev ? (
-        <Button variant="ghost" onClick={onPrev}>
+        <Button variant="ghost" size="lg" onClick={onPrev}>
           <ArrowLeftIcon className="h-4 w-4" /> Atrás
         </Button>
       ) : (
         <span />
       )}
-      <Button onClick={onNext} disabled={nextDisabled}>
+      <Button size="lg" onClick={onNext} disabled={nextDisabled}>
         {nextLabel} <ArrowRightIcon className="h-4 w-4" />
       </Button>
     </div>
@@ -618,19 +638,19 @@ function SizeAndPagesStep({
 
   return (
     <div className="animate-fade-in">
-      <h1 className="text-3xl font-semibold tracking-tight">
+      <h1 className="text-4xl font-semibold tracking-tight">
         Tamaño y extensión del libro
       </h1>
-      <p className="text-[var(--color-fg-muted)] mt-2">
+      <p className="text-lg text-[var(--color-fg-muted)] mt-3">
         Esto es indispensable para que la IA pueda estructurar el libro de forma
         proporcional. Las sugerencias se ajustan al tipo que elegiste.
       </p>
 
-      <div className="mt-6">
-        <div className="text-xs font-semibold uppercase tracking-wider text-[var(--color-fg-subtle)] mb-3">
+      <div className="mt-8">
+        <div className="text-sm font-semibold uppercase tracking-wider text-[var(--color-fg-subtle)] mb-4">
           Formato físico
         </div>
-        <div className="grid sm:grid-cols-2 gap-2">
+        <div className="grid sm:grid-cols-2 gap-3">
           {BOOK_FORMATS.map((f) => {
             const recommended = kindDetail
               ? f.fitsKinds.includes(kindDetail)
@@ -641,7 +661,7 @@ function SizeAndPagesStep({
                 key={f.id}
                 type="button"
                 onClick={() => setFormat(f.id)}
-                className={`text-left rounded-md border p-3 transition-all ${
+                className={`text-left rounded-lg border p-4 transition-all ${
                   selected
                     ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
                     : "border-[var(--color-border)] hover:border-[var(--color-border-strong)]"
@@ -656,18 +676,18 @@ function SizeAndPagesStep({
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <div className="text-sm font-medium">{f.label}</div>
+                      <div className="text-base font-medium">{f.label}</div>
                       {recommended && !selected && (
-                        <span className="text-[10px] text-[var(--color-accent)] bg-[var(--color-accent-soft)] px-1.5 py-0.5 rounded">
+                        <span className="text-[11px] text-[var(--color-accent)] bg-[var(--color-accent-soft)] px-2 py-0.5 rounded">
                           recomendado
                         </span>
                       )}
                     </div>
-                    <div className="text-[11px] text-[var(--color-fg-muted)] mt-0.5">
+                    <div className="text-xs text-[var(--color-fg-muted)] mt-1">
                       {f.widthIn}×{f.heightIn}″ · {f.widthCm}×{f.heightCm}cm ·{" "}
                       {f.widthMm}×{f.heightMm}mm
                     </div>
-                    <div className="text-[11px] text-[var(--color-fg-subtle)] mt-0.5">
+                    <div className="text-xs text-[var(--color-fg-subtle)] mt-1">
                       Ideal: {f.pageSweetMin}–{f.pageSweetMax} páginas
                     </div>
                   </div>
@@ -679,11 +699,11 @@ function SizeAndPagesStep({
       </div>
 
       {fmt && (
-        <div className="mt-6">
-          <div className="text-xs font-semibold uppercase tracking-wider text-[var(--color-fg-subtle)] mb-3">
+        <div className="mt-8">
+          <div className="text-sm font-semibold uppercase tracking-wider text-[var(--color-fg-subtle)] mb-4">
             Páginas objetivo
           </div>
-          <div className="bg-[var(--color-bg-muted)] rounded-md p-4">
+          <div className="bg-[var(--color-bg-muted)] rounded-lg p-5">
             <p className="text-sm text-[var(--color-fg-muted)] mb-3">
               {fmt.label} acepta entre <strong>{fmt.pageMin}</strong> y{" "}
               <strong>{fmt.pageMax}</strong> páginas. Lo ideal está entre{" "}
@@ -706,9 +726,9 @@ function SizeAndPagesStep({
                 max={fmt.pageMax}
                 value={effectivePages}
                 onChange={(e) => setTargetPages(Number(e.target.value))}
-                className="h-9 w-20 rounded-md border border-[var(--color-border)] px-2 text-sm bg-[var(--color-bg-elevated)] text-center"
+                className="h-12 w-24 rounded-md border border-[var(--color-border)] px-3 text-base bg-[var(--color-bg-elevated)] text-center"
               />
-              <span className="text-sm text-[var(--color-fg-muted)]">
+              <span className="text-base text-[var(--color-fg-muted)]">
                 páginas
               </span>
             </div>

@@ -27,13 +27,32 @@ export function computeNumbering(
   roots.forEach((parent, i) => {
     const chapterNum = i + 1;
     result[parent.id] = String(chapterNum);
+    // Solo numeramos hijos que sean secciones/lecciones. Filtrar por kind
+    // evita que un frontmatter/backmatter con parentId hacia un capítulo
+    // (posible al mover nodos) sobreescriba su null con "1.x".
     const kids = nodes
-      .filter((n) => n.parentId === parent.id)
+      .filter(
+        (n) =>
+          n.parentId === parent.id &&
+          (n.kind === "section" || n.kind === "lesson")
+      )
       .sort((a, b) => a.position - b.position);
     kids.forEach((kid, j) => {
       result[kid.id] = `${chapterNum}.${j + 1}`;
     });
   });
+
+  // Toda sección/lección que no recibió número (p.ej. con parent inválido o
+  // huérfana) obtiene null explícito, para que los consumidores no dependan
+  // de undefined (que renderizaban de forma incoherente).
+  for (const n of nodes) {
+    if (
+      (n.kind === "section" || n.kind === "lesson") &&
+      result[n.id] === undefined
+    ) {
+      result[n.id] = null;
+    }
+  }
 
   return result;
 }

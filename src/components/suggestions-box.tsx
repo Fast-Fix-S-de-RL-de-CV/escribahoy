@@ -137,14 +137,21 @@ export function SuggestionsBox({
   }
 
   async function dismissSuggestion(s: Suggestion) {
+    setError(null);
     try {
-      await fetch(`/api/suggestions/${projectId}`, {
+      const res = await fetch(`/api/suggestions/${projectId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: s.id, status: "dismissed" }),
       });
+      // Solo actualizamos el cliente si el server confirmó; antes un res.ok
+      // false dejaba la sugerencia 'descartada' en cliente y 'pending' en
+      // servidor (estado divergente).
+      if (!res.ok) throw new Error("no se pudo descartar");
       onDismissed(s.id);
-    } catch {}
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "no se pudo descartar");
+    }
   }
 
   return (
@@ -238,8 +245,8 @@ export function SuggestionsBox({
                 </button>
                 <button
                   onClick={() => dismissSuggestion(s)}
-                  disabled={running !== null}
-                  className="inline-flex items-center gap-1 text-xs text-[var(--color-fg-subtle)] hover:text-[var(--color-fg)] px-2 h-8 rounded-md hover:bg-[var(--color-bg-muted)]"
+                  disabled={running !== null || !!aiBusy}
+                  className="inline-flex items-center gap-1 text-xs text-[var(--color-fg-subtle)] hover:text-[var(--color-fg)] px-2 h-8 rounded-md hover:bg-[var(--color-bg-muted)] disabled:opacity-50"
                 >
                   <XIcon className="h-3 w-3" />
                   Descartar

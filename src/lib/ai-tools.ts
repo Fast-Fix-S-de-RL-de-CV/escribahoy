@@ -9,6 +9,7 @@ import {
   type DecorationKind,
 } from "@/lib/decorations";
 import { logChange } from "@/lib/change-log";
+import { wordCount } from "@/lib/utils";
 import type { Project } from "@/lib/schema";
 import type Anthropic from "@anthropic-ai/sdk";
 
@@ -339,6 +340,17 @@ export async function executeTool(
             : 0;
         const found = await assertNodeOwned(nodeId, ctx);
         if (!found) return { ok: false, error: "nodo no encontrado" };
+        // El newParentId también debe pertenecer al proyecto del usuario; si
+        // no, mover el nodo bajo un padre ajeno lo dejaría colgante e
+        // invisible en el outline (igual que add_node ya valida su parentId).
+        if (newParentId) {
+          const parentOk = await assertNodeOwned(newParentId, ctx);
+          if (!parentOk)
+            return {
+              ok: false,
+              error: "newParentId no pertenece a este proyecto",
+            };
+        }
         await db
           .update(outlineNodes)
           .set({
@@ -370,8 +382,7 @@ export async function executeTool(
         const node = await assertNodeOwned(nodeId, ctx);
         if (!node) return { ok: false, error: "nodo no encontrado" };
         const newContent = (node.content || "") + html;
-        const wc = newContent.replace(/<[^>]*>/g, " ").trim().split(/\s+/)
-          .filter(Boolean).length;
+        const wc = wordCount(newContent);
         const addedWords = wc - (node.wordCount ?? 0);
         await db
           .update(outlineNodes)
@@ -404,8 +415,7 @@ export async function executeTool(
         if (!nodeId) return { ok: false, error: "nodeId requerido" };
         const node = await assertNodeOwned(nodeId, ctx);
         if (!node) return { ok: false, error: "nodo no encontrado" };
-        const wc = html.replace(/<[^>]*>/g, " ").trim().split(/\s+/)
-          .filter(Boolean).length;
+        const wc = wordCount(html);
         await db
           .update(outlineNodes)
           .set({
@@ -470,8 +480,7 @@ export async function executeTool(
         if (!node) return { ok: false, error: "nodo no encontrado" };
         const html = renderDecorationHtml(kind, { text, attribution, title });
         const newContent = (node.content || "") + html;
-        const wc = newContent.replace(/<[^>]*>/g, " ").trim().split(/\s+/)
-          .filter(Boolean).length;
+        const wc = wordCount(newContent);
         await db
           .update(outlineNodes)
           .set({

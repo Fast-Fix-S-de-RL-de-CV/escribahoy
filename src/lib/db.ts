@@ -52,6 +52,8 @@ function initSchema(db: Database.Database) {
       tone TEXT,
       goal TEXT,
       language TEXT NOT NULL DEFAULT 'es',
+      format TEXT,
+      target_pages INTEGER,
       perspective TEXT,
       formality TEXT,
       style_notes TEXT,
@@ -149,12 +151,24 @@ function initSchema(db: Database.Database) {
       column: "closing_content",
       ddl: "TEXT NOT NULL DEFAULT ''",
     },
+    // Olvidada antes: DBs viejas no tenían script_content y crasheaban con
+    // 'no such column' al tocar el teleprompter/generar guión.
+    {
+      table: "outline_nodes",
+      column: "script_content",
+      ddl: "TEXT NOT NULL DEFAULT ''",
+    },
   ];
   for (const m of migrations) {
     try {
       db.exec(`ALTER TABLE ${m.table} ADD COLUMN ${m.column} ${m.ddl}`);
-    } catch {
-      // Column already exists, ignore.
+    } catch (e) {
+      // Solo ignorar el caso esperado (columna ya existe). Cualquier otro
+      // error de DDL debe propagarse para no dejar el esquema corrupto en
+      // silencio y luego manifestarse como un 'no such column' difícil de
+      // diagnosticar.
+      const msg = String((e as Error)?.message ?? e);
+      if (!/duplicate column name/i.test(msg)) throw e;
     }
   }
 }
