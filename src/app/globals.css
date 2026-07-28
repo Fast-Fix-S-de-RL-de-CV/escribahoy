@@ -269,3 +269,181 @@
 .animate-pop-fade {
   animation: pop-fade 2.4s ease-out forwards;
 }
+
+/* ===================================================================
+   Viñetas de la landing.
+
+   Contrato de seguridad: el estado BASE de cada primitiva es el estado
+   FINAL (visible). La animación sólo existe dentro de
+   @media (prefers-reduced-motion: no-preference), así que quien pide
+   movimiento reducido —o quien no ejecuta JS— ve el contenido completo
+   y estático, nunca una viñeta en blanco.
+
+   El bucle lo controla React remontando la escena (key={cycle}); por eso
+   las primitivas son de una sola pasada con retardo --d.
+   =================================================================== */
+
+.vg {
+  position: relative;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-elevated);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  container-type: inline-size;
+}
+
+/* Fuera de pantalla NO se pausa: pausar una animación con fill-mode:both la
+   congela en su fotograma inicial (opacity 0, width 0) y la viñeta colapsa.
+   En su lugar la animación sólo se declara cuando data-play="true", así que
+   fuera de pantalla el contenido queda en su estado final y estático. */
+
+.vg-type {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+/* La mitad SALIENTE de un relevo termina invisible: ése es su estado final y
+   por tanto su estado base. Si quedara visible en reposo se encimaría con su
+   relevo (p. ej. "Guardando…" sobre "Guardado ahora"). Durante la animación
+   fill-mode:both la mantiene visible hasta que se cumple su retardo.
+   OJO: esto NO aplica a `.vg-out`, que se usa como envoltura del fundido
+   global de fin de ciclo — ésa debe verse en reposo o la viñeta entera
+   quedaría en blanco. */
+.vg-swap-out {
+  opacity: 0;
+}
+
+.vg-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: var(--color-accent);
+  vertical-align: text-bottom;
+}
+
+/* Odómetro: la columna de valores se desplaza; el alto de la ventana es
+   una línea, así sólo se ve un valor a la vez. */
+.vg-odo {
+  display: inline-block;
+  height: 1.15em;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+.vg-odo > span {
+  display: block;
+  height: 1.15em;
+  line-height: 1.15em;
+}
+
+/* Colapso/expansión sin medir alturas en JS. */
+.vg-grow {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+.vg-grow > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .vg[data-play="true"] .vg-in {
+    animation: vg-in 0.5s var(--d, 0s) both cubic-bezier(0.2, 0.7, 0.3, 1);
+  }
+  .vg[data-play="true"] .vg-type {
+    animation: vg-type 0.7s var(--d, 0s) both steps(var(--steps, 30));
+  }
+  .vg[data-play="true"] .vg-caret {
+    animation: pulse-soft 1s steps(2) infinite;
+  }
+  .vg[data-play="true"] .vg-pop {
+    animation: vg-pop 0.4s var(--d, 0s) both cubic-bezier(0.2, 1.4, 0.4, 1);
+  }
+  .vg[data-play="true"] .vg-fill {
+    animation: vg-fill var(--dur, 2s) var(--d, 0s) both ease-out;
+  }
+  .vg[data-play="true"] .vg-odo > span {
+    animation: vg-odo var(--dur, 2s) var(--d, 0s) both
+      steps(var(--stops, 4), end);
+  }
+  .vg[data-play="true"] .vg-out {
+    animation: vg-out 0.35s var(--d, 0s) both ease-in;
+  }
+  .vg[data-play="true"] .vg-grow {
+    animation: vg-grow 0.45s var(--d, 0s) both ease-out;
+  }
+  .vg[data-play="true"] .vg-shrink {
+    animation: vg-shrink 0.4s var(--d, 0s) both ease-in;
+  }
+  .vg[data-play="true"] .vg-cursor {
+    animation: vg-cursor var(--dur, 1s) var(--d, 0s) both
+      cubic-bezier(0.3, 0.8, 0.3, 1);
+  }
+  .vg[data-play="true"] .vg-press {
+    animation: vg-press 0.3s var(--d, 0s) both ease-out;
+  }
+  .vg[data-play="true"] .vg-scroll {
+    animation: vg-scroll var(--dur, 6s) var(--d, 0s) both linear;
+  }
+  .vg[data-play="true"] .vg-toast {
+    animation: pop-fade 2.6s var(--d, 0s) both ease-out;
+  }
+  /* Encadena dos estados en el mismo hueco: el saliente se va, el
+     entrante llega. Evita medir nada y no reserva doble espacio. */
+  .vg[data-play="true"] .vg-swap-out {
+    animation: vg-out 0.3s var(--d, 0s) both ease-in;
+  }
+  .vg[data-play="true"] .vg-swap-in {
+    animation: vg-in 0.4s var(--d, 0s) both cubic-bezier(0.2, 0.7, 0.3, 1);
+  }
+}
+
+@keyframes vg-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes vg-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-4px); }
+}
+@keyframes vg-type {
+  from { width: 0; }
+  to { width: 100%; }
+}
+@keyframes vg-pop {
+  0% { opacity: 0; transform: scale(0.4); }
+  70% { opacity: 1; transform: scale(1.12); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes vg-fill {
+  from { width: var(--from, 0%); }
+  to { width: var(--to, 100%); }
+}
+@keyframes vg-odo {
+  from { transform: translateY(0); }
+  to { transform: translateY(calc(var(--stops, 4) * -1.15em)); }
+}
+@keyframes vg-grow {
+  from { grid-template-rows: 0fr; opacity: 0; }
+  to { grid-template-rows: 1fr; opacity: 1; }
+}
+@keyframes vg-shrink {
+  from { grid-template-rows: 1fr; opacity: 1; }
+  to { grid-template-rows: 0fr; opacity: 0; }
+}
+@keyframes vg-cursor {
+  from { transform: translate(var(--x0, 0px), var(--y0, 0px)); }
+  to { transform: translate(var(--x1, 0px), var(--y1, 0px)); }
+}
+@keyframes vg-press {
+  0% { transform: scale(1); }
+  45% { transform: scale(0.96); }
+  100% { transform: scale(1); }
+}
+@keyframes vg-scroll {
+  from { transform: translateY(var(--from-y, 0)); }
+  to { transform: translateY(var(--to-y, -50%)); }
+}
