@@ -14,22 +14,32 @@ import {
   suggestions,
 } from "@/lib/schema";
 import { requireUser } from "@/lib/auth";
-import { getAnthropic, MODEL, SYSTEM_BASE } from "@/lib/anthropic";
+import {
+  getAnthropic,
+  MODELO_POR_TAREA,
+  RAZONAMIENTO,
+  SYSTEM_BASE,
+} from "@/lib/anthropic";
 import { logChange } from "@/lib/change-log";
 import { getFormat } from "@/lib/book-formats";
 import { wordCount } from "@/lib/utils";
 import { consumirCuota, puedeCrearProyecto } from "@/lib/quotas";
-import { registrarUso, usoDeRespuesta, type ModeloIA } from "@/lib/ai-usage";
+import {
+  modeloId,
+  registrarUso,
+  usoDeRespuesta,
+  type ModeloIA,
+} from "@/lib/ai-usage";
 import { planPorId } from "@/lib/plans";
 import { esSuperAdmin, suscripcionDe } from "@/lib/subscription";
 
 /**
  * Modelo con el que se registra el costo de las acciones de este archivo.
  * Las dos llamadas a la IA de aquí mandan `MODEL`, que hoy es exactamente
- * `modeloId("opus")` (claude-opus-4-7). Explícito a propósito: si alguna
+ * `modeloId("opus")` (claude-opus-5). Explícito a propósito: si alguna
  * cambia de modelo, esta línea cambia con ella o la métrica mentiría.
  */
-const MODELO_USADO: ModeloIA = "opus";
+
 
 const CreateProjectSchema = z.object({
   type: z.enum(["book", "course"]),
@@ -261,8 +271,9 @@ ${
 
   const anthropic = getAnthropic();
   const response = await anthropic.messages.create({
-    model: MODEL,
+    model: modeloId(MODELO_POR_TAREA.temario),
     max_tokens: 8192,
+    thinking: RAZONAMIENTO,
     system: SYSTEM_BASE,
     messages: [{ role: "user", content: prompt }],
   });
@@ -274,7 +285,7 @@ ${
     userId: user.id,
     projectId,
     accion: "temario",
-    modelo: MODELO_USADO,
+    modelo: MODELO_POR_TAREA.temario,
     inputTokens: uso.input,
     outputTokens: uso.output,
     cacheReadTokens: uso.cacheRead,
@@ -794,8 +805,12 @@ ${(node[0].content || "(vacío)").replace(/<[^>]*>/g, " ").slice(0, 6000)}
 Devuelve SOLO el guión, sin explicaciones.`;
 
   const response = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: 2048,
+    model: modeloId(MODELO_POR_TAREA.guion),
+    // El tope se COMPARTE entre el razonamiento y el texto del guion: con 2048
+    // el razonamiento dejaba el guion a medias. Subir el tope no cuesta nada
+    // (se factura el uso real, no el tope).
+    max_tokens: 6000,
+    thinking: RAZONAMIENTO,
     system: SYSTEM_BASE,
     messages: [{ role: "user", content: prompt }],
   });
@@ -807,7 +822,7 @@ Devuelve SOLO el guión, sin explicaciones.`;
     userId: user.id,
     projectId: project.id,
     accion: "guion",
-    modelo: MODELO_USADO,
+    modelo: MODELO_POR_TAREA.guion,
     inputTokens: uso.input,
     outputTokens: uso.output,
     cacheReadTokens: uso.cacheRead,

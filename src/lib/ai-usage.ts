@@ -50,7 +50,9 @@ export const MULT_CACHE_ESCRITURA = 1.25;
  * se les agrega sufijo de fecha: los alias ya son completos.
  */
 const IDS_MODELO: Record<ModeloIA, string> = {
-  opus: "claude-opus-4-7",
+  // Opus 5 cuesta lo MISMO por token que Opus 4.7 (5/25 USD por millón), así
+  // que subir de versión no cuesta nada por token — solo escribe un poco más.
+  opus: "claude-opus-5",
   sonnet: "claude-sonnet-5",
   haiku: "claude-haiku-4-5",
 };

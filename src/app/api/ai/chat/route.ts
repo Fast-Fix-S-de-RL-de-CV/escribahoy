@@ -13,6 +13,7 @@ import {
   getAnthropic,
   SYSTEM_BASE,
   MODELO_POR_TAREA,
+  RAZONAMIENTO,
   bloquesSistemaConCache,
 } from "@/lib/anthropic";
 import { modeloId, registrarUso, usoDeRespuesta } from "@/lib/ai-usage";
@@ -295,6 +296,7 @@ ${progreso}`;
           const response = await anthropic.messages.create({
             model: modeloId(modeloTarea),
             max_tokens: 4096,
+            thinking: RAZONAMIENTO,
             system: buildSystem(outlineText, outlineProgreso),
             tools: TOOLS,
             messages,
@@ -413,6 +415,7 @@ Llama la herramienta AHORA con el contenido literal del usuario, formateado en H
             const retryResp = await anthropic.messages.create({
               model: modeloId(modeloTarea),
               max_tokens: 4096,
+              thinking: RAZONAMIENTO,
               system: buildSystem(outlineText, outlineProgreso),
               tools: TOOLS,
               messages,

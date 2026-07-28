@@ -4,12 +4,22 @@ import { nanoid } from "nanoid";
 import { db } from "@/lib/db";
 import { projects, outlineNodes, knowledgeFiles } from "@/lib/schema";
 import { getCurrentUser } from "@/lib/auth";
-import { getAnthropic, MODEL, SYSTEM_BASE } from "@/lib/anthropic";
+import {
+  getAnthropic,
+  MODELO_POR_TAREA,
+  RAZONAMIENTO,
+  SYSTEM_BASE,
+} from "@/lib/anthropic";
 import { getMissingCoreSettings } from "@/lib/project-validation";
 import { getFormat } from "@/lib/book-formats";
 import { logChange } from "@/lib/change-log";
 import { consumirCuota } from "@/lib/quotas";
-import { registrarUso, usoDeRespuesta, type ModeloIA } from "@/lib/ai-usage";
+import {
+  modeloId,
+  registrarUso,
+  usoDeRespuesta,
+  type ModeloIA,
+} from "@/lib/ai-usage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,10 +27,13 @@ export const maxDuration = 180;
 
 /**
  * Modelo con el que se registra el costo. Esta ruta manda `MODEL`, que hoy es
- * exactamente `modeloId("opus")` (claude-opus-4-7). Explícito a propósito: si
+ * exactamente `modeloId("opus")` (claude-opus-5). Explícito a propósito: si
  * la ruta cambia de modelo, esta línea cambia con ella o la métrica mentiría.
  */
-const MODELO_USADO: ModeloIA = "opus";
+// Se DERIVA de la tabla de routing, no se escribe a mano: si el modelo se
+// escribiera aparte, mover la tarea a otro modelo dejaría el costo del panel
+// registrado contra el modelo equivocado (inflado o subestimado).
+const MODELO_USADO: ModeloIA = MODELO_POR_TAREA.redistribuir;
 
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
@@ -192,8 +205,9 @@ REGLAS DE HTML:
   try {
     const anthropic = getAnthropic();
     const response = await anthropic.messages.create({
-      model: MODEL,
+      model: modeloId(MODELO_POR_TAREA.redistribuir),
       max_tokens: 16000,
+      thinking: RAZONAMIENTO,
       system,
       messages: [{ role: "user", content: userMessage }],
     });
