@@ -13,10 +13,19 @@ import { getAnthropic, MODEL, SYSTEM_BASE } from "@/lib/anthropic";
 import { getMissingCoreSettings } from "@/lib/project-validation";
 import { getFormat } from "@/lib/book-formats";
 import { logChange } from "@/lib/change-log";
+import { consumirCuota } from "@/lib/quotas";
+import { registrarUso, usoDeRespuesta, type ModeloIA } from "@/lib/ai-usage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 180;
+
+/**
+ * Modelo con el que se registra el costo. Esta ruta manda `MODEL`, que hoy es
+ * exactamente `modeloId("opus")` (claude-opus-4-7). Explícito a propósito: si
+ * la ruta cambia de modelo, esta línea cambia con ella o la métrica mentiría.
+ */
+const MODELO_USADO: ModeloIA = "opus";
 
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
@@ -109,6 +118,27 @@ ${project.glossary ? `- Glosario: ${project.glossary}` : ""}
 ${project.avoidTerms ? `- Términos a evitar: ${project.avoidTerms}` : ""}
 ${fmt ? `- Formato: ${fmt.label} (${fmt.widthCm}×${fmt.heightCm}cm)` : ""}`;
 
+  // ── CUOTA ─────────────────────────────────────────────────────────────────
+  // Después de todas las validaciones (sugerencia pendiente, configuración
+  // completa, nodo existente) porque ninguna de ellas llama a la IA, y justo
+  // antes de repartir a los dos manejadores, que sí la llaman. Aplicar una
+  // sugerencia cuesta lo mismo venga de un capítulo o de una sección: una sola
+  // unidad de "sugerencia" en ambos caminos.
+  const cuota = await consumirCuota(user.id, "sugerencia");
+  if (!cuota.ok) {
+    // 402 Payment Required: el usuario está autorizado, lo que se acabó es su
+    // cuota. 403 diría "no eres tú", y no es eso.
+    return NextResponse.json(
+      {
+        error: cuota.mensaje,
+        limite: cuota.limite,
+        usado: cuota.usado,
+        upgrade: true,
+      },
+      { status: 402 }
+    );
+  }
+
   if (isContainer) {
     return await handleContainer(
       project,
@@ -162,6 +192,22 @@ ${suggestion.content}`;
       system,
       messages: [{ role: "user", content: userMessage }],
     });
+
+    // Los tokens ya se gastaron aunque la respuesta no traiga texto usable:
+    // se registra antes de validarla. `project.userId` es el dueño (la consulta
+    // de arriba ya filtró por el usuario de la sesión).
+    const uso = usoDeRespuesta(response.usage);
+    await registrarUso({
+      userId: project.userId,
+      projectId: project.id,
+      accion: "sugerencia",
+      modelo: MODELO_USADO,
+      inputTokens: uso.input,
+      outputTokens: uso.output,
+      cacheReadTokens: uso.cacheRead,
+      cacheWriteTokens: uso.cacheWrite,
+    });
+
     const textBlock = response.content.find((b) => b.type === "text");
     if (!textBlock || textBlock.type !== "text") {
       return NextResponse.json(
@@ -307,6 +353,21 @@ ${suggestion.content}`;
       system,
       messages: [{ role: "user", content: userMessage }],
     });
+
+    // Igual que en handleLeaf: primero la huella de costo, luego la validación
+    // de la respuesta.
+    const uso = usoDeRespuesta(response.usage);
+    await registrarUso({
+      userId: project.userId,
+      projectId: project.id,
+      accion: "sugerencia",
+      modelo: MODELO_USADO,
+      inputTokens: uso.input,
+      outputTokens: uso.output,
+      cacheReadTokens: uso.cacheRead,
+      cacheWriteTokens: uso.cacheWrite,
+    });
+
     const textBlock = response.content.find((b) => b.type === "text");
     if (!textBlock || textBlock.type !== "text") {
       return NextResponse.json(

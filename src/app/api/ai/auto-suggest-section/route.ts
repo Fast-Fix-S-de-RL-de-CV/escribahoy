@@ -13,10 +13,21 @@ import { getAnthropic, MODEL, SYSTEM_BASE } from "@/lib/anthropic";
 import { getMissingCoreSettings } from "@/lib/project-validation";
 import { getFormat } from "@/lib/book-formats";
 import { logChange } from "@/lib/change-log";
+import { consumirCuota } from "@/lib/quotas";
+import { registrarUso, usoDeRespuesta, type ModeloIA } from "@/lib/ai-usage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+
+/**
+ * Modelo con el que se registra el costo. Esta ruta manda `MODEL`, que hoy es
+ * exactamente `modeloId("opus")` (claude-opus-4-7). Se deja explícito y no
+ * derivado de MODELO_POR_TAREA para que la huella de costo describa lo que de
+ * verdad se llamó: si algún día esta ruta cambia de modelo, hay que cambiar
+ * las dos líneas juntas.
+ */
+const MODELO_USADO: ModeloIA = "opus";
 
 function htmlToText(html: string | null | undefined): string {
   if (!html) return "";
@@ -286,6 +297,27 @@ DEVUELVE ÚNICAMENTE el texto de la sugerencia (markdown OK). Sin preámbulos. E
     ? `El autor ya empezó a escribir "${node.title}". Genera la sugerencia para ayudarle a completarla coherentemente con todo el libro.`
     : `Genera la sugerencia estructural para "${node.title}".`;
 
+  // ── CUOTA ─────────────────────────────────────────────────────────────────
+  // Va aquí abajo y no junto a la autenticación a propósito: todas las salidas
+  // anteriores (nodo que no aplica, configuración incompleta, sugerencia que ya
+  // existía) devuelven SIN llamar a la IA, y cobrarle al autor una sugerencia
+  // que nunca recibió sería un error de cobro. Este es el último punto antes de
+  // gastar tokens.
+  const cuota = await consumirCuota(user.id, "sugerencia");
+  if (!cuota.ok) {
+    // 402 Payment Required: no es un problema de permisos (403) sino de plan.
+    // El cliente distingue "no puedes" de "no te alcanza" por este código.
+    return NextResponse.json(
+      {
+        error: cuota.mensaje,
+        limite: cuota.limite,
+        usado: cuota.usado,
+        upgrade: true,
+      },
+      { status: 402 }
+    );
+  }
+
   try {
     const anthropic = getAnthropic();
     const response = await anthropic.messages.create({
@@ -294,6 +326,21 @@ DEVUELVE ÚNICAMENTE el texto de la sugerencia (markdown OK). Sin preámbulos. E
       system,
       messages: [{ role: "user", content: userMessage }],
     });
+
+    // Se registra ANTES de mirar el contenido: los tokens ya se gastaron
+    // aunque la respuesta venga sin bloque de texto. registrarUso nunca lanza.
+    const uso = usoDeRespuesta(response.usage);
+    await registrarUso({
+      userId: user.id,
+      projectId: project.id,
+      accion: "sugerencia",
+      modelo: MODELO_USADO,
+      inputTokens: uso.input,
+      outputTokens: uso.output,
+      cacheReadTokens: uso.cacheRead,
+      cacheWriteTokens: uso.cacheWrite,
+    });
+
     const textBlock = response.content.find((b) => b.type === "text");
     if (!textBlock || textBlock.type !== "text") {
       return NextResponse.json(

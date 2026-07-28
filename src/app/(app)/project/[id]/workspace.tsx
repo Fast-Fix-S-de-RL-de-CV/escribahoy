@@ -1711,6 +1711,7 @@ function AIPanel({
     setStreamTools([]);
     let outlineChanged = false;
     let assistantText = "";
+    let errorServidor = "";
     const toolsLog: ToolEvent[] = [];
     try {
       const res = await fetch("/api/ai/chat", {
@@ -1723,7 +1724,15 @@ function AIPanel({
           message: text,
         }),
       });
-      if (!res.ok || !res.body) throw new Error("error");
+      // Los errores previos al stream (402 de cuota, 404 de proyecto) llegan
+      // como JSON con un mensaje humano. Se guarda para mostrarlo tal cual en
+      // vez del genérico de abajo, que habla de la API key y no aplica aquí.
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        errorServidor = (j.error ?? "").trim();
+        throw new Error("error");
+      }
+      if (!res.body) throw new Error("error");
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buf = "";
@@ -1809,8 +1818,9 @@ function AIPanel({
         projectId: project.id,
         nodeId: activeNode?.id ?? null,
         role: "assistant",
-        content:
-          "❌ No pude responder. Verifica que ANTHROPIC_API_KEY esté configurada en .env.production.",
+        content: errorServidor
+          ? `❌ ${errorServidor}`
+          : "❌ No pude responder. Verifica que ANTHROPIC_API_KEY esté configurada en .env.production.",
         createdAt: new Date(),
       };
       onMessages([...messages, tempUser, tempErr]);

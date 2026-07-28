@@ -526,7 +526,28 @@ async function assertNodeOwned(nodeId: string, ctx: ToolCtx) {
   return rows[0]?.outline_nodes ?? null;
 }
 
-export async function renderOutlineWithIds(projectId: string): Promise<string> {
+/**
+ * Temario renderizado con IDs, para que la IA sepa a qué nodo apuntar.
+ *
+ * ── POR QUÉ EXISTE `conProgreso` ──────────────────────────────────────────
+ * El estado (`status`) y las palabras escritas (`wordCount`) de cada nodo
+ * cambian EN CUANTO el autor teclea. Cuando este texto va dentro del prefijo
+ * cacheado de un prompt, ese par de datos volátiles cambia los bytes del
+ * prefijo en cada request y el prompt caching NUNCA acierta: se paga el
+ * premium de escritura de caché una y otra vez y jamás se cobra una lectura a
+ * 0.1x. Con `conProgreso: false` el render sale ESTABLE (solo estructura,
+ * títulos y resúmenes, que solo cambian cuando una tool toca el temario) y el
+ * progreso se manda por separado, después del breakpoint de caché
+ * (ver `renderOutlineProgress`).
+ *
+ * El valor por defecto es `true` para no cambiarle el prompt a ningún
+ * llamador existente: sin la opción, la salida es byte por byte la de antes.
+ */
+export async function renderOutlineWithIds(
+  projectId: string,
+  opts?: { conProgreso?: boolean }
+): Promise<string> {
+  const conProgreso = opts?.conProgreso ?? true;
   const nodes = await db
     .select()
     .from(outlineNodes)
@@ -538,15 +559,45 @@ export async function renderOutlineWithIds(projectId: string): Promise<string> {
   const lines: string[] = [];
   for (const r of roots) {
     lines.push(
-      `- [${r.kind}] id=${r.id} | ${r.title} (${r.status})${r.summary ? ` — ${r.summary}` : ""}`
+      `- [${r.kind}] id=${r.id} | ${r.title}${conProgreso ? ` (${r.status})` : ""}${r.summary ? ` — ${r.summary}` : ""}`
     );
     const kids = nodes
       .filter((n) => n.parentId === r.id)
       .sort((a, b) => a.position - b.position);
     for (const k of kids) {
       lines.push(
-        `  - [${k.kind}] id=${k.id} | ${k.title} (${k.status}, ${k.wordCount}p)${k.summary ? ` — ${k.summary}` : ""}`
+        `  - [${k.kind}] id=${k.id} | ${k.title}${conProgreso ? ` (${k.status}, ${k.wordCount}p)` : ""}${k.summary ? ` — ${k.summary}` : ""}`
       );
+    }
+  }
+  return lines.join("\n") || "(sin outline aún)";
+}
+
+/**
+ * SOLO el avance de cada nodo (estado + palabras escritas), sin títulos ni
+ * resúmenes. Es la mitad volátil de `renderOutlineWithIds(id, {conProgreso:
+ * false})`: va DESPUÉS del breakpoint de caché, donde cambiar en cada request
+ * no cuesta nada. La IA lo necesita para saber qué falta por escribir.
+ */
+export async function renderOutlineProgress(
+  projectId: string
+): Promise<string> {
+  const nodes = await db
+    .select()
+    .from(outlineNodes)
+    .where(eq(outlineNodes.projectId, projectId))
+    .orderBy(asc(outlineNodes.position));
+  const roots = nodes
+    .filter((n) => !n.parentId)
+    .sort((a, b) => a.position - b.position);
+  const lines: string[] = [];
+  for (const r of roots) {
+    lines.push(`- id=${r.id} (${r.status}, ${r.wordCount}p)`);
+    const kids = nodes
+      .filter((n) => n.parentId === r.id)
+      .sort((a, b) => a.position - b.position);
+    for (const k of kids) {
+      lines.push(`  - id=${k.id} (${k.status}, ${k.wordCount}p)`);
     }
   }
   return lines.join("\n") || "(sin outline aún)";

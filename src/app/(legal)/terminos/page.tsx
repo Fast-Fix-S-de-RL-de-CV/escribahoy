@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import {
+  CreditCardIcon,
   FileTextIcon,
   KeyRoundIcon,
   ScaleIcon,
@@ -46,7 +47,7 @@ const SECTIONS = [
   { id: "disponibilidad", label: "Disponibilidad del servicio" },
   { id: "respaldos", label: "Respaldos y copias de tu contenido" },
   { id: "responsabilidad", label: "Limitación de responsabilidad" },
-  { id: "costos", label: "Costo del servicio" },
+  { id: "costos", label: "Costo del servicio, planes y cobros" },
   { id: "terminacion", label: "Terminación de la cuenta y borrado de datos" },
   { id: "modificaciones", label: "Modificaciones a estos términos" },
   { id: "privacidad", label: "Privacidad" },
@@ -406,13 +407,93 @@ export default function TerminosPage() {
         </P>
       </Section>
 
-      <Section id="costos" n={12} title="Costo del servicio">
+      <Section id="costos" n={12} title="Costo del servicio, planes y cobros">
+        <Sub>El plan gratuito y los planes de paga</Sub>
         <P>
-          A la fecha de estos términos, EscribaHoy no procesa cobros ni solicita
-          datos de medios de pago. Si en el futuro se introdujeran planes de pago o
-          funciones de paga, sus condiciones se publicarían por separado y te las
-          daríamos a conocer antes de que aplicaran para tu cuenta. Ningún cargo se
-          te haría sin tu autorización previa y expresa.
+          EscribaHoy tiene un plan gratuito que no caduca y que{" "}
+          <Term>no requiere tarjeta</Term>, y planes de paga con más capacidad de
+          uso. Los precios vigentes, lo que incluye cada plan y sus límites de uso
+          se publican en{" "}
+          <Link
+            href="/precios"
+            className="font-medium text-[var(--color-accent)] underline underline-offset-2 hover:text-[var(--color-accent-hover)]"
+          >
+            escribahoy.com/precios
+          </Link>
+          . Se cobran en <Term>pesos mexicanos</Term> y los montos exhibidos ya
+          incluyen el IVA: el precio que ves es el total que se te cobra.
+        </P>
+        <P>
+          Cada plan trae límites de uso de las funciones de inteligencia artificial
+          (temarios, sugerencias, mensajes con el asistente, palabras de dictado y
+          demás) que se reinician cada mes calendario. Esos límites forman parte de
+          lo que contratas y están descritos en la página de precios. Si cambiamos
+          los precios o los límites de un plan, te lo avisaremos conforme a la
+          sección 14 y el cambio nunca aplicará de forma retroactiva a un periodo
+          que ya pagaste.
+        </P>
+
+        <Sub>Quién procesa el pago</Sub>
+        <Highlight icon={CreditCardIcon} title="Tu tarjeta la recibe Stripe, no nosotros">
+          <P>
+            El cobro lo procesa{" "}
+            <ExternalLink href="https://stripe.com">Stripe</ExternalLink>, nuestro
+            proveedor de pagos. Los datos de tu tarjeta se capturan directamente en
+            su plataforma:{" "}
+            <Term>EscribaHoy no los ve, no los almacena y no los transmite</Term>.
+            De tu suscripción conservamos únicamente lo necesario para darte
+            acceso y facturarte —el plan contratado, su periodo, su estado y los
+            identificadores que Stripe nos devuelve—, como se detalla en el Aviso
+            de Privacidad.
+          </P>
+        </Highlight>
+
+        <Sub>Renovación automática</Sub>
+        <P>
+          Las suscripciones son de <Term>renovación automática</Term>: al terminar
+          cada periodo (mensual o anual, según el que elijas) se genera un cargo
+          nuevo con el mismo medio de pago, y así hasta que canceles. Al contratar
+          autorizas expresamente esos cargos recurrentes; nunca se te cobra un
+          concepto distinto al plan que elegiste sin tu autorización previa.
+        </P>
+        <P>
+          Si un cobro es rechazado por tu banco, Stripe lo reintenta durante unos
+          días. Mientras el periodo que ya pagaste siga vigente conservas tu
+          acceso; si los reintentos se agotan sin éxito, la cuenta regresa al plan
+          gratuito.
+        </P>
+
+        <Sub>Cancelación</Sub>
+        <P>
+          Puedes cancelar <Term>en cualquier momento</Term> y sin llamar a nadie,
+          desde &ldquo;Administrar mi suscripción&rdquo; en la página de precios de
+          tu cuenta. No hay plazos forzosos ni penalizaciones por cancelar.
+        </P>
+        <Bullets>
+          <Item>
+            Al cancelar conservas el acceso a tu plan{" "}
+            <Term>hasta que termine el periodo que ya pagaste</Term>. No cortamos
+            el servicio el mismo día ni prorrateamos devoluciones del tiempo
+            restante, porque ese tiempo sigue siendo tuyo.
+          </Item>
+          <Item>
+            Cuando el periodo concluye, la cuenta pasa al plan gratuito y aplican
+            sus límites de uso.
+          </Item>
+          <Item>
+            Bajar de plan o cancelar <Term>no borra tu contenido</Term>: tus
+            proyectos, tu temario, lo que escribiste y tus archivos de base de
+            conocimiento siguen ahí. Lo que cambia es cuánto puedes usar las
+            funciones de inteligencia artificial y cuántos proyectos puedes tener
+            activos a la vez. El borrado de contenido solo ocurre si tú lo pides,
+            en los términos de la sección 13.
+          </Item>
+        </Bullets>
+        <P>
+          Los derechos que la Ley Federal de Protección al Consumidor te reconoce
+          sobre cancelaciones, cargos indebidos y aclaraciones quedan a salvo en
+          todo momento. Si detectas un cargo que no reconoces, escríbenos a{" "}
+          <MailLink address={CONTACT} /> y lo revisamos contigo.
         </P>
       </Section>
 

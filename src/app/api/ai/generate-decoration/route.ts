@@ -3,7 +3,14 @@ import { eq, and } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { projects, outlineNodes, knowledgeFiles } from "@/lib/schema";
 import { getCurrentUser } from "@/lib/auth";
-import { getAnthropic, MODEL, SYSTEM_BASE } from "@/lib/anthropic";
+import {
+  getAnthropic,
+  SYSTEM_BASE,
+  MODELO_POR_TAREA,
+  bloquesSistemaConCache,
+} from "@/lib/anthropic";
+import { modeloId, registrarUso, usoDeRespuesta } from "@/lib/ai-usage";
+import { consumirCuota } from "@/lib/quotas";
 import { DECORATION_KINDS, type DecorationKind } from "@/lib/decorations";
 
 export const runtime = "nodejs";
@@ -97,7 +104,16 @@ export async function POST(req: NextRequest) {
     sourcePriority = `No hay contenido ni KB. Genera con tu conocimiento general, alineado al tema y tono del proyecto.`;
   }
 
-  const system = `${SYSTEM_BASE}
+  // ── PREFIJO ESTABLE (con breakpoint de caché) ───────────────────────────
+  // Prompt de sistema + ficha del proyecto: idénticos en todas las decoraciones
+  // del mismo proyecto. Lo que cambia por request (sección, contenido escrito,
+  // KB, tipo de accesorio) va después del breakpoint.
+  // ⚠️ Con este orden el prefijo estable ronda los ~500 tokens, por debajo del
+  // mínimo cacheable de claude-haiku-4-5 (4096): hoy la marca no cachea (ni
+  // cobra premium). NO se reordenó el prompt para meter el KB en el prefijo
+  // porque eso sí cambiaría el prompt que ve el modelo, y la calidad no se toca
+  // en este pase. Ver el reporte: mover el KB arriba es la palanca pendiente.
+  const systemEstable = `${SYSTEM_BASE}
 
 Proyecto:
 - Tipo: ${project.type === "book" ? "libro" : "curso"}${project.kindDetail ? ` (${project.kindDetail})` : ""}
@@ -108,7 +124,12 @@ ${project.perspective ? `- Persona: ${project.perspective}` : ""}
 ${project.formality ? `- Formalidad: ${project.formality}` : ""}
 ${project.glossary ? `- Glosario: ${project.glossary}` : ""}
 ${project.avoidTerms ? `- Términos a evitar: ${project.avoidTerms}` : ""}
+`;
 
+  // ── VOLÁTIL (después del breakpoint, sin marca) ─────────────────────────
+  // Arranca con salto de línea para que `estable + volatil` reproduzca byte por
+  // byte el prompt que ya se mandaba.
+  const systemVolatil = `
 Sección actual: "${node.title}"
 ${node.summary ? `Resumen previsto: ${node.summary}` : ""}
 
@@ -143,14 +164,53 @@ DEVUELVE ÚNICAMENTE un JSON válido con este formato exacto (sin markdown, sin 
     ? `Genera el accesorio. Instrucción adicional del usuario: ${body.instruction}`
     : `Genera el accesorio.`;
 
+  const modeloTarea = MODELO_POR_TAREA.decoracion;
+
+  // ── CUOTA ─────────────────────────────────────────────────────────────────
+  // Después de validar el tipo de accesorio, la propiedad del proyecto y la
+  // existencia del nodo (ninguna de esas llama a la IA), y justo antes de
+  // gastar tokens. OJO: cada "generar otra versión" del editor es una llamada
+  // nueva y cuenta como una decoración, que es exactamente lo que promete el
+  // plan ("portadas y decoraciones" al mes).
+  const cuota = await consumirCuota(user.id, "decoracion");
+  if (!cuota.ok) {
+    // 402 Payment Required: el usuario está autorizado, lo que se acabó es su
+    // cuota. 403 diría "no eres tú", y no es eso.
+    return NextResponse.json(
+      {
+        error: cuota.mensaje,
+        limite: cuota.limite,
+        usado: cuota.usado,
+        upgrade: true,
+      },
+      { status: 402 }
+    );
+  }
+
   try {
     const anthropic = getAnthropic();
     const response = await anthropic.messages.create({
-      model: MODEL,
+      model: modeloId(modeloTarea),
       max_tokens: 1024,
-      system,
+      system: bloquesSistemaConCache({
+        estable: systemEstable,
+        volatil: systemVolatil,
+      }),
       messages: [{ role: "user", content: userMessage }],
     });
+
+    const uso = usoDeRespuesta(response.usage);
+    await registrarUso({
+      userId: user.id,
+      projectId: project.id,
+      accion: "decoracion",
+      modelo: modeloTarea,
+      inputTokens: uso.input,
+      outputTokens: uso.output,
+      cacheReadTokens: uso.cacheRead,
+      cacheWriteTokens: uso.cacheWrite,
+    });
+
     const textBlock = response.content.find((b) => b.type === "text");
     if (!textBlock || textBlock.type !== "text") {
       return NextResponse.json(

@@ -114,6 +114,24 @@ function initSchema(db: Database.Database) {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS ai_project_idx ON ai_messages(project_id);
+    -- Huella de costo de CADA llamada a la IA (tokens + USD). Ver
+    -- src/lib/ai-usage.ts. project_id usa SET NULL y NO cascade: si el autor
+    -- borra un proyecto, el renglón de costo sobrevive desligado — el gasto ya
+    -- ocurrió y borrarlo falsearía el margen del negocio.
+    CREATE TABLE IF NOT EXISTS ai_usage (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      accion TEXT NOT NULL,
+      modelo TEXT NOT NULL,
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+      costo_usd REAL NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS ai_usage_user_time ON ai_usage(user_id, created_at);
     CREATE TABLE IF NOT EXISTS writing_days (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -144,6 +162,43 @@ function initSchema(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS suggestions_node_status ON suggestions(node_id, status);
     CREATE INDEX IF NOT EXISTS suggestions_project ON suggestions(project_id);
+    -- Contadores de cuota. Una fila por (usuario, periodo, acción).
+    CREATE TABLE IF NOT EXISTS usage_counters (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      periodo TEXT NOT NULL,
+      accion TEXT NOT NULL,
+      cantidad INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL
+    );
+    -- Este UNIQUE no es decorativo: es el destino del ON CONFLICT del upsert
+    -- atómico de consumirCuota(). Sin él, dos llamadas concurrentes podrían
+    -- crear dos filas y rebasar la cuota.
+    CREATE UNIQUE INDEX IF NOT EXISTS usage_counters_user_periodo_accion
+      ON usage_counters(user_id, periodo, accion);
+    -- Espejo local de la suscripción de Stripe (verdad del ACCESO).
+    CREATE TABLE IF NOT EXISTS subscriptions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      stripe_customer_id TEXT,
+      stripe_subscription_id TEXT,
+      plan TEXT NOT NULL DEFAULT 'gratis',
+      ciclo TEXT,
+      estado TEXT NOT NULL DEFAULT 'ninguna',
+      periodo_fin INTEGER,
+      cancela_al_fin INTEGER NOT NULL DEFAULT 0,
+      -- event.created del último evento de Stripe aplicado a esta fila: la marca
+      -- de agua que permite descartar entregas viejas o fuera de orden.
+      ultimo_evento_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS subscriptions_user_idx ON subscriptions(user_id);
+    -- UNIQUE para que el webhook de Stripe sea idempotente (un mismo
+    -- subscription.id no puede duplicar filas). En SQLite un índice UNIQUE
+    -- admite varios NULL, así que las filas sin suscripción no chocan.
+    CREATE UNIQUE INDEX IF NOT EXISTS subscriptions_stripe_sub_unq
+      ON subscriptions(stripe_subscription_id);
   `);
 
   // Idempotent column adds for existing DBs created before these fields existed.
@@ -151,6 +206,12 @@ function initSchema(db: Database.Database) {
     // Nullable a propósito: los usuarios que ya existían nunca vieron la
     // casilla de términos, así que quedan en NULL en lugar de inventar fecha.
     { table: "users", column: "accepted_terms_at", ddl: "INTEGER" },
+    // Rol: 'user' | 'superadmin'. SQLite SÍ acepta ADD COLUMN con NOT NULL
+    // DEFAULT mientras el default sea una constante (verificado en 3.53, la
+    // versión que trae better-sqlite3 12.x), así que las filas viejas quedan
+    // en 'user' sin escritura extra. Aun así, esSuperAdmin() trata NULL como
+    // 'user' por si alguna DB quedó con la columna nullable.
+    { table: "users", column: "role", ddl: "TEXT NOT NULL DEFAULT 'user'" },
     { table: "projects", column: "kind_detail", ddl: "TEXT" },
     { table: "projects", column: "format", ddl: "TEXT" },
     { table: "projects", column: "target_pages", ddl: "INTEGER" },
@@ -171,6 +232,10 @@ function initSchema(db: Database.Database) {
       column: "script_content",
       ddl: "TEXT NOT NULL DEFAULT ''",
     },
+    // Marca de agua del webhook de Stripe. Nullable: las filas que ya existían
+    // quedan en NULL = "nunca se aplicó un evento", así que aceptan el primero
+    // que llegue en lugar de bloquearse.
+    { table: "subscriptions", column: "ultimo_evento_at", ddl: "INTEGER" },
   ];
   for (const m of migrations) {
     try {

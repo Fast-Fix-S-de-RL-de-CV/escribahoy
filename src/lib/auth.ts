@@ -163,6 +163,11 @@ export async function getCurrentUser(): Promise<SafeUser | null> {
         email: users.email,
         name: users.name,
         acceptedTermsAt: users.acceptedTermsAt,
+        // No es secreto (el rol solo abre el panel de administración, y quien
+        // lo tiene ya lo sabe) y así la UI puede mostrar el enlace al panel sin
+        // otra consulta. La autorización real la hace esSuperAdmin() en el
+        // servidor: esto es solo para pintar.
+        role: users.role,
         createdAt: users.createdAt,
       },
     })

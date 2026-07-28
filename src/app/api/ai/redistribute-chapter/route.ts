@@ -8,10 +8,19 @@ import { getAnthropic, MODEL, SYSTEM_BASE } from "@/lib/anthropic";
 import { getMissingCoreSettings } from "@/lib/project-validation";
 import { getFormat } from "@/lib/book-formats";
 import { logChange } from "@/lib/change-log";
+import { consumirCuota } from "@/lib/quotas";
+import { registrarUso, usoDeRespuesta, type ModeloIA } from "@/lib/ai-usage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 180;
+
+/**
+ * Modelo con el que se registra el costo. Esta ruta manda `MODEL`, que hoy es
+ * exactamente `modeloId("opus")` (claude-opus-4-7). Explícito a propósito: si
+ * la ruta cambia de modelo, esta línea cambia con ella o la métrica mentiría.
+ */
+const MODELO_USADO: ModeloIA = "opus";
 
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
@@ -160,6 +169,26 @@ REGLAS DE HTML:
 
   const userMessage = `Redistribuye el contenido actual del capítulo "${node.title}" en sus secciones, dejando solo una intro corta en el cuerpo del capítulo.`;
 
+  // ── CUOTA ─────────────────────────────────────────────────────────────────
+  // Al final de las validaciones y antes de la IA: un capítulo sin contenido
+  // suficiente sale más arriba sin gastar tokens, así que tampoco debe gastar
+  // cuota. Redistribuir es la acción más cara del sistema (manda el capítulo
+  // completo y pide hasta 16k tokens de salida), de ahí que tenga su propio
+  // límite en plans.ts y no comparta el de sugerencias.
+  const cuota = await consumirCuota(user.id, "redistribuir");
+  if (!cuota.ok) {
+    // 402 Payment Required: se acabó la cuota del plan, no el permiso.
+    return NextResponse.json(
+      {
+        error: cuota.mensaje,
+        limite: cuota.limite,
+        usado: cuota.usado,
+        upgrade: true,
+      },
+      { status: 402 }
+    );
+  }
+
   try {
     const anthropic = getAnthropic();
     const response = await anthropic.messages.create({
@@ -168,6 +197,21 @@ REGLAS DE HTML:
       system,
       messages: [{ role: "user", content: userMessage }],
     });
+
+    // Los tokens ya se gastaron aunque la respuesta venga vacía o mal formada:
+    // la huella de costo se escribe antes de validar nada. Nunca lanza.
+    const uso = usoDeRespuesta(response.usage);
+    await registrarUso({
+      userId: user.id,
+      projectId: project.id,
+      accion: "redistribuir",
+      modelo: MODELO_USADO,
+      inputTokens: uso.input,
+      outputTokens: uso.output,
+      cacheReadTokens: uso.cacheRead,
+      cacheWriteTokens: uso.cacheWrite,
+    });
+
     const textBlock = response.content.find((b) => b.type === "text");
     if (!textBlock || textBlock.type !== "text") {
       return NextResponse.json(

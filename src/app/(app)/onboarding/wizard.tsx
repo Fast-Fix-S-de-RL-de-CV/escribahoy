@@ -70,6 +70,7 @@ export function OnboardingWizard() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   // Steps: 0=type, 1=kindDetail, 2=sizeAndPages (book only), 3=titleDesc, 4=audienceTone, 5=kb, 6=generate.
@@ -90,6 +91,7 @@ export function OnboardingWizard() {
 
   async function handleCreateAndContinue() {
     if (!type || !title.trim()) return;
+    setCreateError(null);
     startTransition(async () => {
       try {
         const { id } = await createProject({
@@ -108,6 +110,14 @@ export function OnboardingWizard() {
         setStep(5);
       } catch (e) {
         console.error(e);
+        // Sin esto el wizard se queda quieto y el usuario no sabe por qué: el
+        // caso más común es haber llegado al tope de proyectos de su plan, y
+        // ese mensaje explica qué hacer (archivar uno o subir de plan).
+        setCreateError(
+          e instanceof Error && e.message
+            ? e.message
+            : "No pudimos crear el proyecto. Inténtalo de nuevo."
+        );
       }
     });
   }
@@ -365,6 +375,11 @@ export function OnboardingWizard() {
               </div>
             </div>
           </div>
+          {createError && (
+            <p className="text-sm text-[var(--color-danger)] mt-6">
+              {createError}
+            </p>
+          )}
           <Footer
             onPrev={() => setStep(3)}
             onNext={handleCreateAndContinue}

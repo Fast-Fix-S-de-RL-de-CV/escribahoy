@@ -18,6 +18,18 @@ import { getAnthropic, MODEL, SYSTEM_BASE } from "@/lib/anthropic";
 import { logChange } from "@/lib/change-log";
 import { getFormat } from "@/lib/book-formats";
 import { wordCount } from "@/lib/utils";
+import { consumirCuota, puedeCrearProyecto } from "@/lib/quotas";
+import { registrarUso, usoDeRespuesta, type ModeloIA } from "@/lib/ai-usage";
+import { planPorId } from "@/lib/plans";
+import { esSuperAdmin, suscripcionDe } from "@/lib/subscription";
+
+/**
+ * Modelo con el que se registra el costo de las acciones de este archivo.
+ * Las dos llamadas a la IA de aquí mandan `MODEL`, que hoy es exactamente
+ * `modeloId("opus")` (claude-opus-4-7). Explícito a propósito: si alguna
+ * cambia de modelo, esta línea cambia con ella o la métrica mentiría.
+ */
+const MODELO_USADO: ModeloIA = "opus";
 
 const CreateProjectSchema = z.object({
   type: z.enum(["book", "course"]),
@@ -44,6 +56,14 @@ export async function createProject(input: {
 }) {
   const user = await requireUser();
   const parsed = CreateProjectSchema.parse(input);
+
+  // CUPO DE PROYECTOS. No es cuota mensual: es un tope de simultáneos, así que
+  // se compara contra el estado actual (proyectos no archivados) en vez de
+  // consumir un contador. Va antes del insert porque después ya no hay vuelta
+  // atrás: el proyecto existiría y el usuario habría rebasado su plan.
+  const cupo = await puedeCrearProyecto(user.id);
+  if (!cupo.ok) throw new Error(cupo.mensaje);
+
   const id = nanoid();
   const now = new Date();
   await db.insert(projects).values({
@@ -115,6 +135,15 @@ export async function generateOutlineForProject(projectId: string) {
     .limit(1);
   if (!rows.length) throw new Error("Proyecto no encontrado");
   const project = rows[0];
+
+  // ── CUOTA ─────────────────────────────────────────────────────────────────
+  // Después de verificar la propiedad (nadie gasta cuota por pedir el temario
+  // de un proyecto ajeno) y antes de armar el prompt. Un temario completo son
+  // ~15,430 tokens de entrada + hasta 6,000 de salida: es la acción más cara
+  // del producto y no puede quedar sin puerta. Es un Server Action, así que el
+  // contrato de error es lanzar: el formulario ya muestra el mensaje.
+  const cuota = await consumirCuota(user.id, "temario");
+  if (!cuota.ok) throw new Error(cuota.mensaje);
 
   const kb = await db
     .select()
@@ -236,6 +265,20 @@ ${
     max_tokens: 8192,
     system: SYSTEM_BASE,
     messages: [{ role: "user", content: prompt }],
+  });
+
+  // Los tokens ya se gastaron aunque la respuesta no traiga JSON usable, así
+  // que la huella de costo se registra ANTES de validarla.
+  const uso = usoDeRespuesta(response.usage);
+  await registrarUso({
+    userId: user.id,
+    projectId,
+    accion: "temario",
+    modelo: MODELO_USADO,
+    inputTokens: uso.input,
+    outputTokens: uso.output,
+    cacheReadTokens: uso.cacheRead,
+    cacheWriteTokens: uso.cacheWrite,
   });
 
   const textBlock = response.content.find((b) => b.type === "text");
@@ -701,6 +744,19 @@ export async function generateScriptForLesson(input: {
   if (!owns.length) throw new Error("No autorizado");
   const project = owns[0];
 
+  // ── MODO CURSO (función exclusiva del plan Autoridad) ─────────────────────
+  // El guion de teleprompter es LA razón por la que alguien paga Autoridad. Se
+  // verifica la bandera del plan, no la cuota, porque el mensaje tiene que
+  // decir de qué plan es la función y no "ya usaste 0 guiones". Los super
+  // admins pasan, igual que en consumirCuota, para poder probar en producción.
+  const suscripcion = await suscripcionDe(user.id);
+  const plan = planPorId(suscripcion.plan);
+  if (!plan.modoCurso && !(await esSuperAdmin(user.id))) {
+    throw new Error(
+      "El guion de teleprompter es del plan Autoridad, que incluye el modo curso completo. Tu plan actual no lo trae: puedes cambiarlo desde la página de precios."
+    );
+  }
+
   const node = await db
     .select()
     .from(outlineNodes)
@@ -712,6 +768,14 @@ export async function generateScriptForLesson(input: {
     )
     .limit(1);
   if (!node.length) throw new Error("Lección no encontrada");
+
+  // ── CUOTA ─────────────────────────────────────────────────────────────────
+  // Después de la verificación de plan (para que gane el mensaje que explica
+  // que es función de Autoridad) y de encontrar la lección — pedir un guion de
+  // una lección inexistente no debe cobrarle una unidad a nadie —, y justo
+  // antes de gastar tokens.
+  const cuota = await consumirCuota(user.id, "guion");
+  if (!cuota.ok) throw new Error(cuota.mensaje);
 
   const anthropic = getAnthropic();
   const prompt = `Convierte el siguiente contenido en un guión hablado, listo para teleprompter. Reglas:
@@ -735,6 +799,21 @@ Devuelve SOLO el guión, sin explicaciones.`;
     system: SYSTEM_BASE,
     messages: [{ role: "user", content: prompt }],
   });
+
+  // Igual que en el temario: la huella de costo primero, la validación de la
+  // respuesta después. Los tokens ya se pagaron.
+  const uso = usoDeRespuesta(response.usage);
+  await registrarUso({
+    userId: user.id,
+    projectId: project.id,
+    accion: "guion",
+    modelo: MODELO_USADO,
+    inputTokens: uso.input,
+    outputTokens: uso.output,
+    cacheReadTokens: uso.cacheRead,
+    cacheWriteTokens: uso.cacheWrite,
+  });
+
   const textBlock = response.content.find((b) => b.type === "text");
   if (!textBlock || textBlock.type !== "text") {
     throw new Error("La IA no devolvió guión");
