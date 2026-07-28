@@ -1,6 +1,12 @@
 import Link from "next/link";
-import { LayoutDashboardIcon, PlusIcon, LogOutIcon } from "lucide-react";
+import {
+  LayoutDashboardIcon,
+  PlusIcon,
+  LogOutIcon,
+  HeartIcon,
+} from "lucide-react";
 import { logoutAction } from "@/lib/actions/auth";
+import { Logo } from "@/components/logo";
 import type { User } from "@/lib/schema";
 
 export function AppShell({
@@ -15,11 +21,8 @@ export function AppShell({
   return (
     <div className="min-h-screen flex">
       <aside className="hidden md:flex w-60 border-r border-[var(--color-border)] bg-[var(--color-bg-elevated)] flex-col">
-        <Link href="/" className="px-5 py-4 flex items-center gap-2 border-b border-[var(--color-border)]">
-          <span className="h-7 w-7 rounded-md bg-[var(--color-accent)] grid place-items-center text-white font-serif font-bold">
-            E
-          </span>
-          <span className="font-semibold">Escribahoy</span>
+        <Link href="/" className="px-5 py-4 flex items-center border-b border-[var(--color-border)]">
+          <Logo size={30} wordmarkClassName="text-lg" />
         </Link>
         <nav className="flex-1 p-3 space-y-1">
           <SideLink
@@ -50,6 +53,22 @@ export function AppShell({
               Cerrar sesión
             </button>
           </form>
+          <div className="px-3 pt-3 mt-1 flex items-center justify-center gap-1 text-[10px] text-[var(--color-fg-subtle)] border-t border-[var(--color-border)]">
+            <span>Hecho con</span>
+            <HeartIcon
+              className="h-2.5 w-2.5 text-[var(--color-danger)]"
+              fill="currentColor"
+            />
+            <span>en México ·</span>
+            <a
+              href="https://fast-fix.com.mx"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium hover:text-[var(--color-accent)]"
+            >
+              Fast Fix IT
+            </a>
+          </div>
         </div>
       </aside>
       <main className="flex-1 min-w-0">{children}</main>

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Escribahoy — Escribe tu libro o curso con IA",
+  title: "EscribaHoy — Escribe tu libro o curso con IA",
   description:
     "Una herramienta donde tus ideas sueltas se convierten en capítulos. La IA organiza, tú escribes.",
 };

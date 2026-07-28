@@ -10,10 +10,11 @@
   --color-fg-subtle: #a8a29e;
   --color-border: #e7e5e4;
   --color-border-strong: #d6d3d1;
-  --color-accent: #7c3aed;
-  --color-accent-hover: #6d28d9;
-  --color-accent-soft: #f5f3ff;
+  --color-accent: #0d9488;
+  --color-accent-hover: #0f766e;
+  --color-accent-soft: #edfbf7;
   --color-accent-fg: #ffffff;
+  --color-brand-ink: #1e3a4a;
   --color-success: #16a34a;
   --color-warning: #d97706;
   --color-danger: #dc2626;

@@ -1847,7 +1847,7 @@ function AIPanel({
           <span className="h-7 w-7 rounded-md bg-[var(--color-accent-soft)] grid place-items-center text-[var(--color-accent)]">
             <SparklesIcon className="h-3.5 w-3.5" />
           </span>
-          <div className="text-sm font-semibold">Escribahoy</div>
+          <div className="text-sm font-semibold">EscribaHoy</div>
         </div>
         {messages.length > 0 && (
           <button

@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { Logo } from "@/components/logo";
+import { SiteFooter } from "@/components/site-footer";
 import { getCurrentUser } from "@/lib/auth";
 import {
   BookOpenIcon,
@@ -8,6 +10,7 @@ import {
   UploadCloudIcon,
   GraduationCapIcon,
   ArrowRightIcon,
+  CheckIcon,
 } from "lucide-react";
 
 export default async function Home() {
@@ -15,11 +18,8 @@ export default async function Home() {
   return (
     <div className="min-h-screen flex flex-col">
       <header className="px-6 py-4 flex items-center justify-between border-b border-[var(--color-border)]">
-        <Link href="/" className="flex items-center gap-2">
-          <span className="h-8 w-8 rounded-md bg-[var(--color-accent)] grid place-items-center text-white font-serif font-bold text-lg">
-            E
-          </span>
-          <span className="font-semibold tracking-tight text-lg">Escribahoy</span>
+        <Link href="/" className="flex items-center">
+          <Logo size={34} wordmarkClassName="text-xl" />
         </Link>
         <div className="flex items-center gap-2">
           {user ? (
@@ -51,7 +51,7 @@ export default async function Home() {
           </h1>
           <p className="text-lg text-[var(--color-fg-muted)] mt-6 max-w-2xl mx-auto">
             Escribe tu libro o tu curso sin perder ninguna idea. Sube tus PDFs,
-            cuéntale a Escribahoy lo que tienes en la cabeza, y la IA va organizando
+            cuéntale a EscribaHoy lo que tienes en la cabeza, y la IA va organizando
             todo en su lugar.
           </p>
           <div className="mt-8 flex items-center justify-center gap-3 flex-wrap">
@@ -84,7 +84,7 @@ export default async function Home() {
             <Feature
               icon={<BookOpenIcon className="h-5 w-5" />}
               title="Tú escribes, la IA organiza"
-              text="Cuéntale tus ideas. Escribahoy las pone donde corresponden."
+              text="Cuéntale tus ideas. EscribaHoy las pone donde corresponden."
             />
             <Feature
               icon={<GraduationCapIcon className="h-5 w-5" />}
@@ -101,7 +101,7 @@ export default async function Home() {
                 Un wizard que vive contigo durante todo el proyecto.
               </h2>
               <p className="text-[var(--color-fg-muted)] mt-4 leading-relaxed">
-                Escribahoy no escribe capítulos completos por ti. Aporta una idea, una
+                EscribaHoy no escribe capítulos completos por ti. Aporta una idea, una
                 referencia o una sugerencia estructural, y deja que tú llenes el
                 contenido. Así el libro o curso se siente realmente tuyo.
               </p>
@@ -113,8 +113,8 @@ export default async function Home() {
                   "Convierte cualquier sección en guión listo para teleprompter",
                 ].map((t) => (
                   <li key={t} className="flex items-start gap-2">
-                    <span className="h-5 w-5 rounded-full bg-[var(--color-accent-soft)] text-[var(--color-accent)] grid place-items-center text-xs flex-shrink-0 mt-0.5">
-                      ✓
+                    <span className="h-5 w-5 rounded-full bg-[var(--color-accent-soft)] text-[var(--color-accent)] grid place-items-center flex-shrink-0 mt-0.5">
+                      <CheckIcon className="h-3 w-3" strokeWidth={3} />
                     </span>
                     <span>{t}</span>
                   </li>
@@ -138,9 +138,7 @@ export default async function Home() {
         </section>
       </main>
 
-      <footer className="px-6 py-8 border-t border-[var(--color-border)] text-center text-sm text-[var(--color-fg-subtle)]">
-        Escribahoy · escribe sin perder ideas
-      </footer>
+      <SiteFooter />
     </div>
   );
 }
