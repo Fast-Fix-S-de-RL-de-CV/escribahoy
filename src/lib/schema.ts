@@ -6,6 +6,7 @@ export const users = sqliteTable("users", {
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
   passwordHash: text("password_hash").notNull(),
+  acceptedTermsAt: integer("accepted_terms_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -17,6 +18,20 @@ export const sessions = sqliteTable("sessions", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+});
+
+// El id ES el SHA-256 hex del token de reseteo: nunca se guarda el token en
+// claro, así que una filtración de la DB no permite reusar los enlaces.
+export const passwordResets = sqliteTable("password_resets", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  usedAt: integer("used_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
 });
 
 export const projects = sqliteTable("projects", {
@@ -180,6 +195,7 @@ export const outlineRelations = relations(outlineNodes, ({ one, many }) => ({
 }));
 
 export type User = typeof users.$inferSelect;
+export type PasswordReset = typeof passwordResets.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type OutlineNode = typeof outlineNodes.$inferSelect;
 export type KnowledgeFile = typeof knowledgeFiles.$inferSelect;

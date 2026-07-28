@@ -7,14 +7,14 @@ import {
 } from "lucide-react";
 import { logoutAction } from "@/lib/actions/auth";
 import { Logo } from "@/components/logo";
-import type { User } from "@/lib/schema";
+import type { SafeUser } from "@/lib/auth";
 
 export function AppShell({
   user,
   children,
   active,
 }: {
-  user: User;
+  user: SafeUser;
   children: React.ReactNode;
   active?: "dashboard" | "new";
 }) {

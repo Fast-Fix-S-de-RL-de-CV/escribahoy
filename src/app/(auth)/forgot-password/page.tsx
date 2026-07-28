@@ -1,34 +1,30 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getCurrentUser, getRememberedEmail } from "@/lib/auth";
-import { LoginForm } from "./form";
+import { getCurrentUser } from "@/lib/auth";
+import { ForgotPasswordForm } from "./form";
 
-export default async function LoginPage() {
+export default async function ForgotPasswordPage() {
   const user = await getCurrentUser();
   if (user) redirect("/dashboard");
-
-  // La cookie del correo recordado es httpOnly, así que solo este Server
-  // Component puede leerla; el formulario la recibe ya resuelta como prop.
-  const rememberedEmail = await getRememberedEmail();
 
   return (
     <div className="w-full max-w-md animate-fade-in">
       <div className="text-center mb-10">
         <h1 className="text-4xl font-semibold tracking-tight">
-          Bienvenido de vuelta
+          ¿Olvidaste tu contraseña?
         </h1>
         <p className="text-lg text-[var(--color-fg-muted)] mt-3">
-          Sigue escribiendo donde lo dejaste.
+          Te enviamos un enlace para crear una nueva.
         </p>
       </div>
-      <LoginForm defaultEmail={rememberedEmail ?? ""} />
+      <ForgotPasswordForm />
       <p className="text-center text-base text-[var(--color-fg-muted)] mt-8">
-        ¿Aún no tienes cuenta?{" "}
+        ¿Ya la recordaste?{" "}
         <Link
-          href="/register"
+          href="/login"
           className="text-[var(--color-accent)] font-medium hover:underline"
         >
-          Crear cuenta
+          Volver a iniciar sesión
         </Link>
       </p>
     </div>

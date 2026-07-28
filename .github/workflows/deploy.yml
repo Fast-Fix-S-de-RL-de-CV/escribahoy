@@ -36,7 +36,22 @@ jobs:
             git reset --hard origin/main
             if echo "$CHANGED" | grep -qE '(^|/)package(-lock)?\.json$'; then
               echo "==> deps cambiaron: npm install"
+              NATIVE=node_modules/better-sqlite3/build/Release/better_sqlite3.node
+              BACKUP=/root/escribahoy-backups/better_sqlite3.node
+              # Respalda el .node compilado a mano antes de que npm lo pueda pisar.
+              [ -f "$NATIVE" ] && cp -a "$NATIVE" "$BACKUP" || true
               npm install --no-audit --no-fund
+              # Red de seguridad: si npm rompió/borró el módulo nativo, restáuralo.
+              # (En este server better-sqlite3 no compila sin gcc-toolset-12, así que
+              #  un rebuild fallido dejaría la app sin base de datos.)
+              if ! node -e "require('better-sqlite3')" 2>/dev/null; then
+                echo "==> better-sqlite3 quedó roto tras npm install: restaurando binario"
+                mkdir -p "$(dirname "$NATIVE")"
+                cp -a "$BACKUP" "$NATIVE"
+                node -e "require('better-sqlite3'); console.log('==> binario nativo restaurado OK')"
+              else
+                echo "==> better-sqlite3 carga correctamente"
+              fi
             else
               echo "==> sin cambios de deps: omito npm install (protege better-sqlite3)"
             fi

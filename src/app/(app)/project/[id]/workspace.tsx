@@ -44,9 +44,9 @@ import type {
   OutlineNode,
   Project,
   AIMessage,
-  User,
   Suggestion,
 } from "@/lib/schema";
+import type { SafeUser } from "@/lib/auth";
 import { cn, formatRelative, plural, wordCount } from "@/lib/utils";
 import { RichEditor } from "@/components/rich-editor";
 import { computeNumbering } from "@/lib/numbering";
@@ -71,7 +71,7 @@ export function ProjectWorkspace({
   suggestions: initialSuggestions,
   initialNodeId,
 }: {
-  user: User;
+  user: SafeUser;
   project: Project;
   nodes: OutlineNode[];
   kb: KbItem[];
@@ -436,7 +436,7 @@ function Topbar({
   onOpenHistory,
 }: {
   project: Project;
-  user: User;
+  user: SafeUser;
   kpis: { total: number; completed: number; progress: number; words: number };
   onOpenKb: () => void;
   onOpenSettings: () => void;

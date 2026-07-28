@@ -32,6 +32,7 @@ function initSchema(db: Database.Database) {
       email TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL,
       password_hash TEXT NOT NULL,
+      accepted_terms_at INTEGER,
       created_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS sessions (
@@ -40,6 +41,15 @@ function initSchema(db: Database.Database) {
       expires_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id);
+    -- id = SHA-256 hex del token de reseteo (nunca el token en claro).
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at INTEGER NOT NULL,
+      used_at INTEGER,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS password_resets_user_idx ON password_resets(user_id);
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -138,6 +148,9 @@ function initSchema(db: Database.Database) {
 
   // Idempotent column adds for existing DBs created before these fields existed.
   const migrations: Array<{ table: string; column: string; ddl: string }> = [
+    // Nullable a propósito: los usuarios que ya existían nunca vieron la
+    // casilla de términos, así que quedan en NULL en lugar de inventar fecha.
+    { table: "users", column: "accepted_terms_at", ddl: "INTEGER" },
     { table: "projects", column: "kind_detail", ddl: "TEXT" },
     { table: "projects", column: "format", ddl: "TEXT" },
     { table: "projects", column: "target_pages", ddl: "INTEGER" },
